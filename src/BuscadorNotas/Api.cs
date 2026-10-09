@@ -14,6 +14,7 @@ public record ZipRequisicao(List<string>? Chaves);
 /// <summary>API HTTP (Minimal API) + arquivos estáticos da interface (wwwroot). Reutiliza Repositorio, Robo e SyncService.</summary>
 public static class ApiServer
 {
+    public const string ServiceName = "BuscadorNotasSaida";
     private const int MaxChavesZip = 1000;
     private const int MaxLinhasCsv = 50_000;
     private static readonly Regex MesRegex = new(@"^\d{4}-(0[1-9]|1[0-2])$", RegexOptions.Compiled);
@@ -47,6 +48,7 @@ public static class ApiServer
         });
         builder.Logging.SetMinimumLevel(LogLevel.Warning);
         builder.WebHost.UseUrls(url);
+        builder.Host.UseWindowsService(o => o.ServiceName = ServiceName); // sem efeito fora do Windows Service
 
         var sync = new SyncService(cfg, repo, robo);
         var storage = new Armazenamento(cfg.PastaXml);

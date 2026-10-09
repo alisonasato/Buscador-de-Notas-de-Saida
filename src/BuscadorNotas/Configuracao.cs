@@ -16,6 +16,12 @@ public class Configuracao
     /// <summary>URL do NFeConsultaProtocolo4 por código de UF (2 dígitos). Sem valor padrão: preencher conforme o Portal da NF-e.</summary>
     public Dictionary<string, string> UrlsConsultaProtocolo { get; set; } = new();
 
+    /// <summary>Pasta de destino do comando <c>backup</c> (preferencialmente outro disco/compartilhamento).</summary>
+    public string PastaBackup { get; set; } = "";
+
+    /// <summary>Pasta do arquivo de configuração; logs e dados relativos ficam aqui (não depende do diretório de trabalho).</summary>
+    [JsonIgnore] public string PastaConfig { get; set; } = ".";
+
     public string PastaXml { get; set; } = "./xmls";
     public string BancoSqlite { get; set; } = "./notas.db";
     public int EsperaSemNovosMinutos { get; set; } = 90;
@@ -39,9 +45,19 @@ public class Configuracao
     public string SenhaCertificado =>
         SenhaEmMemoria ?? Environment.GetEnvironmentVariable("NFE_PFX_SENHA") ?? "";
 
+    /// <summary>Caminho do arquivo: argumento, BUSCADOR_CONFIG, appsettings.json no diretório atual ou ao lado do executável.</summary>
+    public static string LocalizarArquivo(string? caminho = null)
+    {
+        caminho ??= Environment.GetEnvironmentVariable("BUSCADOR_CONFIG");
+        if (!string.IsNullOrWhiteSpace(caminho)) return Path.GetFullPath(caminho);
+        foreach (var c in new[] { Path.Combine(Directory.GetCurrentDirectory(), "appsettings.json"), Path.Combine(AppContext.BaseDirectory, "appsettings.json") })
+            if (File.Exists(c)) return c;
+        return Path.GetFullPath("appsettings.json");
+    }
+
     public static Configuracao Carregar(string? caminho = null)
     {
-        caminho ??= Environment.GetEnvironmentVariable("BUSCADOR_CONFIG") ?? "appsettings.json";
+        caminho = LocalizarArquivo(caminho);
         if (!File.Exists(caminho))
             throw new FileNotFoundException(
                 $"Arquivo de configuração '{caminho}' não encontrado. Copie appsettings.exemplo.json para appsettings.json e preencha.");
@@ -51,6 +67,13 @@ public class Configuracao
                   ?? throw new InvalidDataException("Configuração inválida.");
 
         cfg.Cnpj = new string(cfg.Cnpj.Where(char.IsDigit).ToArray());
+        cfg.PastaConfig = Path.GetDirectoryName(caminho) ?? ".";
+        // Caminhos relativos valem a partir da pasta do arquivo (um serviço do Windows roda em System32).
+        string Resolver(string p) => string.IsNullOrWhiteSpace(p) ? p : Path.GetFullPath(p, cfg.PastaConfig);
+        cfg.PastaXml = Resolver(cfg.PastaXml);
+        cfg.BancoSqlite = Resolver(cfg.BancoSqlite);
+        cfg.CertificadoPfx = Resolver(cfg.CertificadoPfx);
+        cfg.PastaBackup = Resolver(cfg.PastaBackup);
         return cfg;
     }
 

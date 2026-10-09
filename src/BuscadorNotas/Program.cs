@@ -1,5 +1,6 @@
 using System.Globalization;
 using BuscadorNotas;
+using Microsoft.Extensions.Hosting.WindowsServices;
 
 const string Ajuda = """
     Buscador de Notas de Saída
@@ -7,7 +8,9 @@ const string Ajuda = """
     Uso: BuscadorNotas <comando> [opções]
 
     Comandos:
-      serve [--url http://127.0.0.1:5080]
+      backup [--destino pasta] [--manter N]
+                                  Backup do banco (consistente, online) + cópia incremental dos XMLs. Padrão: PastaBackup, 14 backups.
+      serve [--log-arquivo] [--url http://127.0.0.1:5080]
                                   Sobe a interface web e a API HTTP (/api). Veja ApiUrl/ApiToken em appsettings.json.
       sync [--loop]               Robô de NSU (nfeDistDFeInteresse). Com --loop roda continuamente.
       sync --desde-nsu N          Volta o NSU salvo para N e sincroniza (reprocessa histórico; operação idempotente).
@@ -27,7 +30,8 @@ const string Ajuda = """
           --status <BAIXADO|PENDENTE|RESUMO|CONSULTADA_SEM_XML|ERRO>
           --vmin <valor>          --vmax <valor>      --limite <n>
 
-    Configuração: appsettings.json (ou caminho em BUSCADOR_CONFIG). Senha do .pfx em NFE_PFX_SENHA.
+    Opção global: --config <arquivo>.
+    Configuração: appsettings.json (ou --config / variável BUSCADOR_CONFIG). Senha do .pfx em NFE_PFX_SENHA.
     """;
 
 if (args.Length == 0 || args[0] is "-h" or "--help" or "help")
@@ -39,9 +43,14 @@ if (args.Length == 0 || args[0] is "-h" or "--help" or "help")
 using var cts = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
 
+// Opção global: --config <arquivo> (alternativa à variável BUSCADOR_CONFIG; usada pela tarefa agendada de backup).
+string? arquivoConfig = null;
+for (var i = 0; i < args.Length - 1; i++)
+    if (args[i] == "--config") { arquivoConfig = args[i + 1]; args = args.Take(i).Concat(args.Skip(i + 2)).ToArray(); break; }
+
 try
 {
-    var cfg = Configuracao.Carregar();
+    var cfg = Configuracao.Carregar(arquivoConfig);
     var repo = new Repositorio(cfg.BancoSqlite);
     cfg.AplicarPreferencias(repo);
     var robo = new Robo(cfg, repo);
@@ -49,7 +58,18 @@ try
 
     switch (args[0])
     {
+        case "backup":
+        {
+            var r = BackupService.Executar(cfg, Opcao(resto, "--destino") ?? cfg.PastaBackup,
+                int.Parse(Opcao(resto, "--manter") ?? "14", CultureInfo.InvariantCulture));
+            Console.WriteLine($"Banco salvo em {r.ArquivoDb}");
+            Console.WriteLine($"XMLs: {r.XmlsCopiados} copiados, {r.XmlsJaExistentes} já existiam. Backups de banco antigos removidos: {r.BackupsRemovidos}.");
+            break;
+        }
+
         case "serve":
+            if (WindowsServiceHelpers.IsWindowsService() || resto.Contains("--log-arquivo"))
+                LogDiario.Iniciar(Path.Combine(cfg.PastaConfig, "logs"));
             await ApiServer.ServirAsync(cfg, repo, robo, Opcao(resto, "--url") ?? cfg.ApiUrl, cts.Token);
             break;
 

@@ -47,6 +47,10 @@ O comando `serve` sobe a interface (`src/BuscadorNotas/wwwroot`) e a API (`/api`
 
 **Sincronização.** Uma execução por vez. A Sefaz respondendo 656 coloca o servidor em espera (`blocked`) por `EsperaConsumoIndevidoMinutos`, e isso sobrevive a reinício. A sincronização automática vem desligada; ligue na tela de configurações (intervalo mínimo de 60 min).
 
+## Uso diário no Windows
+
+Serviço do Windows, logs por dia e backup agendado: veja **[docs/instalacao-windows.md](docs/instalacao-windows.md)** (`deploy/instalar.ps1`). Comando de backup: `BuscadorNotas backup --destino D:\Backups\Buscador`.
+
 ## ⚠️ Pontos a verificar antes de usar em produção
 
 Este código **não foi compilado nem executado** no ambiente em que foi escrito (sem .NET SDK/Sefaz disponíveis). Rode `dotnet build` e `dotnet test` primeiro. Além disso, há pontos sobre os quais não tenho certeza e que dependem da documentação oficial vigente (Portal Nacional da NF-e):
