@@ -73,7 +73,7 @@ idle ─(agendado ou "Sincronizar agora")─▶ running ─▶ idle   (cStat 138
 | **idle** | "SEFAZ online" (verde) | ativo | oculto | KPI "Última sincronização" mostra horário e próxima execução |
 | **running** | "Sincronizando…" (azul pulsante) | desativado, ícone girando | progresso determinado `ultNSU / maxNSU`, nº do lote, contador de notas novas, **Cancelar** | faixa de progresso na Topbar; usuário segue navegando |
 | **empty** | "SEFAZ online" | ativo | "Tudo em dia. Nenhuma nota nova. Próxima consulta …" (dispensável) | sem toast (não interromper à toa) |
-| **blocked** | "Consulta em espera" (âmbar) | **desativado** | explica o erro 656 em linguagem simples + contagem regressiva (≈65 min) | volta sozinho a idle; não oferecer "tentar de novo" (pioraria o bloqueio) |
+| **blocked** | "Consulta em espera" (âmbar) | **desativado** | explica o erro 656 em linguagem simples + contagem regressiva (≈2 h) | volta sozinho a idle; não oferecer "tentar de novo" (pioraria o bloqueio) |
 | **error** | "Sem conexão" (vermelho) | ativo | causa provável + "Abrir configurações" + "Tentar de novo"; informa que nada foi perdido (retoma do último NSU salvo) | o erro persiste até ação ou próxima tentativa bem-sucedida |
 
 ### Regras de comportamento

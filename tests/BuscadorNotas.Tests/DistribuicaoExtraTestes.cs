@@ -206,8 +206,8 @@ public class DistribuicaoExtraTestes
         var (f, sefaz, robo) = await Montar(cte: false, mdfe: false);
         await using var _f = f; await using var _s = sefaz;
         f.Repo.SalvarPref("ultimaConsulta", $"{DateTimeOffset.Now.AddMinutes(-61):o}|656");
-        var espera = robo.EsperaRestante()!.Value;                            // 65 - 61 = 4 min
-        Assert.InRange(espera.Restante.TotalMinutes, 3, 4.1);
+        var espera = robo.EsperaRestante()!.Value;                            // 120 - 61 = 59 min
+        Assert.InRange(espera.Restante.TotalMinutes, 58, 59.1);
 
         f.Repo.SalvarPref("ultimaConsulta", $"{DateTimeOffset.Now.AddMinutes(-61):o}|137");
         Assert.Null(robo.EsperaRestante());                                   // 137 há 61 min: já pode
@@ -415,4 +415,17 @@ public class DistribuicaoExtraTestes
     }
 
     private static string Chave(string mod, int n) => Chave(mod, n, Eu);
+
+    [Fact]
+    public async Task Trava_entre_processos_impede_duas_consultas_simultaneas()
+    {
+        var (f, sefaz, robo) = await Montar(cte: false, mdfe: false);
+        await using var _f = f; await using var _s = sefaz;
+        using (var primeira = robo.AdquirirTravaConsulta())
+        {
+            var ex = Assert.Throws<InvalidOperationException>(() => robo.AdquirirTravaConsulta());   // "outro processo"
+            Assert.Contains("já está consultando", ex.Message);
+        }
+        using var depois = robo.AdquirirTravaConsulta();                                              // liberada ao fechar
+    }
 }

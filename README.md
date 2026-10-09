@@ -26,7 +26,7 @@ dotnet test
 
 | Tipo | Como entra | Cancelamento |
 |---|---|---|
-| NF-e (55) e NFC-e (65) | XML/ZIP na pasta de entrada ou linha de comando; **NF-e também pela sincronização com a Sefaz** (a confirmar) e pelo SPED (chaves) | evento 110111/110112 |
+| NF-e (55) e NFC-e (120) | XML/ZIP na pasta de entrada ou linha de comando; **NF-e também pela sincronização com a Sefaz** (a confirmar) e pelo SPED (chaves) | evento 110111/110112 |
 | CT-e (57) e CT-e OS (67) | XML/ZIP | evento 110111 (`procEventoCTe`) |
 | MDF-e (58) | XML/ZIP | evento 110111 (`procEventoMDFe`); o 110112 é *encerramento* e **não** cancela |
 | CF-e SAT (59) | XML/ZIP | `CFeCanc` (aponta o original em `chCanc`) |
@@ -72,7 +72,7 @@ O comando `serve` sobe a interface (`src/BuscadorNotas/wwwroot`) e a API (`/api`
 
 **Certificado pela interface.** O `.pfx` é salvo ao lado do banco (`certificado.pfx`) e a **senha fica só na memória** do processo: após reiniciar, defina `NFE_PFX_SENHA` ou envie o certificado novamente.
 
-**Sincronização.** Uma execução por vez. A Sefaz respondendo 656 coloca o servidor em espera (`blocked`) por `EsperaConsumoIndevidoMinutos`, e isso sobrevive a reinício. A sincronização automática vem desligada; ligue na tela de configurações (intervalo mínimo de 60 min).
+**Sincronização.** Uma execução por vez, também entre processos: um arquivo `notas.db.consulta.lock` impede que o serviço e um `sync` no terminal consultem a Sefaz ao mesmo tempo. A Sefaz respondendo 656 coloca o servidor em espera (`blocked`) por `EsperaConsumoIndevidoMinutos`, e isso sobrevive a reinício. A sincronização automática vem desligada; ligue na tela de configurações (intervalo mínimo de 60 min).
 
 ## Notas de entrada (você é o destinatário)
 
@@ -100,7 +100,7 @@ Significa cStat 138 (a Sefaz entregou documentos), porém nenhum era uma NF-e **
 
 ## Erro 656 "Consumo indevido" na sincronização
 
-É um **limite de uso** da Sefaz, não um defeito: depois de uma consulta sem novidades (137) ou que chegou ao fim do acervo (138), uma nova consulta em menos de 1 hora é recusada com 656 e o CNPJ fica bloqueado por um tempo. O programa respeita isso: depois dessas consultas o botão "Sincronizar agora" fica desativado até o horário liberado (`IntervaloMinimoMinutos`, padrão 60), o agendador também espera, e na linha de comando o `sync` recusa com aviso (`--forcar` ignora, por sua conta e risco). Depois de um 656 a espera é de `EsperaConsumoIndevidoMinutos` (65) e vale mesmo se você fechar e abrir o programa. **Não clique repetidamente, não reinicie para "destravar" e não rode `sync --diagnostico` durante a espera**: o bloqueio é na Sefaz e cada tentativa pode prolongá-lo.
+É um **limite de uso** da Sefaz, não um defeito: depois de uma consulta sem novidades (137) ou que chegou ao fim do acervo (138), uma nova consulta em menos de 1 hora é recusada com 656 e o CNPJ fica bloqueado por um tempo. O programa respeita isso: depois dessas consultas o botão "Sincronizar agora" fica desativado até o horário liberado (`IntervaloMinimoMinutos`, padrão 60), o agendador também espera, e na linha de comando o `sync` recusa com aviso (`--forcar` ignora, por sua conta e risco). Depois de um 656 a espera é de `EsperaConsumoIndevidoMinutos` (120) e vale mesmo se você fechar e abrir o programa. **Não clique repetidamente, não reinicie para "destravar" e não rode `sync --diagnostico` durante a espera**: o bloqueio é na Sefaz e cada tentativa pode prolongá-lo.
 
 ## Erro 215 "Falha no esquema XML" na sincronização
 
@@ -114,7 +114,7 @@ Este código **não foi compilado nem executado** no ambiente em que foi escrito
 - **`nfeConsultaProtocolo` retorna situação e protocolo, geralmente não o XML completo.** O sistema grava o XML só se a resposta trouxer `nfeProc`; caso contrário marca a nota como `CONSULTADA_SEM_XML`. O guia assume que baixa o XML; não tenho confirmação disso.
 - **Envelope SOAP:** a versão (1.1 × 1.2), o `cUFAutor` (guia usa `91`), o elemento-operação no corpo e as URLs devem ser conferidos no WSDL/Manual de Orientação do Contribuinte. Há `Soap12` e `UrlDistribuicao` em configuração; `UrlsConsultaProtocolo` (por UF) vem sem valor propositalmente.
 - **Layout do SPED:** posições do `C100` usadas em `SpedParser.cs` (IND_OPER=2, COD_SIT=6, SER=7, NUM_DOC=8, CHV_NFE=9, DT_DOC=10, VL_DOC=12) conferir com o Guia Prático da EFD da sua versão.
-- Códigos de retorno tratados: 138 (docs), 137 (nenhum), 656 (consumo indevido → espera ~65 min). Demais lançam erro.
+- Códigos de retorno tratados: 138 (docs), 137 (nenhum), 656 (consumo indevido → espera de 120 min). Demais lançam erro.
 - **Diagnóstico:** `sync --diagnostico` mostra se a distribuição devolve notas em que seu CNPJ é emitente (não grava nada nem altera o NSU salvo). Rode antes de depender do `sync` para saídas.
 - **Eventos de cancelamento:** o `sync` agora lê `resEvento`/`procEventoNFe` com `tpEvento` 110111/110112 de notas emitidas pelo seu CNPJ (o CNPJ é tirado da chave) e marca a nota como **Cancelada**; o cancelamento vence sobre o `cStat 100` do XML original e é reaplicado se a nota chegar depois do evento. Os nomes dos elementos e os tipos de evento estão **de memória**, sem fonte verificada: use `sync --diagnostico` (que agora conta os eventos de cancelamento) para confirmar com dados reais. Carta de correção (CC-e) e outros eventos continuam ignorados.
 - **Aplicar cancelamentos que já passaram:** o NSU salvo já estava à frente deles. Rode `sync --desde-nsu N` (ex.: `000000000000000` para o início) para reprocessar; é idempotente, mas consome consultas da Sefaz (respeite o limite de uso, cStat 656).

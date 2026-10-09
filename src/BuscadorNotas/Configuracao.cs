@@ -68,7 +68,7 @@ public class Configuracao
     public string PastaXml { get; set; } = "./xmls";
     public string BancoSqlite { get; set; } = "./notas.db";
     public int EsperaSemNovosMinutos { get; set; } = 90;
-    public int EsperaConsumoIndevidoMinutos { get; set; } = 65;
+    public int EsperaConsumoIndevidoMinutos { get; set; } = 120;
 
     /// <summary>
     /// Intervalo mínimo entre consultas quando a anterior chegou ao fim do acervo (cStat 137, ou 138 com ultNSU = maxNSU).

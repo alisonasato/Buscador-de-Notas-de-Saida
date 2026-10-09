@@ -59,6 +59,7 @@ public partial class Robo
     public async Task DiagnosticarAsync(int maxPaginas, string nsuInicial, CancellationToken ct, string? servico = null)
     {
         _cfg.ValidarParaSefaz();
+        using var trava = AdquirirTravaConsulta();
         ResolverUf();
         using var cert = CertificadoService.ObterCertificado(_cfg.CertificadoPfx, _cfg.SenhaCertificado);
         using var http = SefazHttp.CriarClient(cert);
@@ -82,6 +83,7 @@ public partial class Robo
     public async Task<ResultadoCiclo> ExecutarCicloAsync(Action<ProgressoSync>? progresso, CancellationToken ct)
     {
         _cfg.ValidarParaSefaz();
+        using var trava = AdquirirTravaConsulta();
         ResolverUf();
         using var cert = CertificadoService.ObterCertificado(_cfg.CertificadoPfx, _cfg.SenhaCertificado);
         using var http = SefazHttp.CriarClient(cert);
@@ -89,6 +91,23 @@ public partial class Robo
     }
 
     // ---------- Limite de consultas da Sefaz ----------
+
+    /// <summary>
+    /// Trava entre PROCESSOS (arquivo ao lado do banco, aberto sem compartilhamento): impede que o serviço do Windows e um
+    /// "sync" digitado no terminal consultem a Sefaz ao mesmo tempo. É liberada ao fechar e pelo sistema se o processo morrer.
+    /// </summary>
+    public IDisposable AdquirirTravaConsulta()
+    {
+        try
+        {
+            return new FileStream(_cfg.BancoSqlite + ".consulta.lock", FileMode.OpenOrCreate, FileAccess.ReadWrite,
+                FileShare.None, 1, FileOptions.DeleteOnClose);
+        }
+        catch (IOException)
+        {
+            throw new InvalidOperationException("Outro programa (ou o serviço) já está consultando a Sefaz para este banco de dados. Aguarde ele terminar.");
+        }
+    }
 
     private const string PrefUltimaConsulta = "ultimaConsulta";
 
@@ -335,6 +354,7 @@ public partial class Robo
     public async Task<ResultadoBuscaChaves> BuscarPendentesPorChaveAsync(int limite, bool forcar, CancellationToken ct)
     {
         _cfg.ValidarParaSefaz();
+        using var trava = AdquirirTravaConsulta();
         using var cert = CertificadoService.ObterCertificado(_cfg.CertificadoPfx, _cfg.SenhaCertificado);
         using var http = SefazHttp.CriarClient(cert);
         return await BuscarPendentesPorChaveAsync(http, limite, forcar, ct);
