@@ -19,7 +19,7 @@ No PowerShell **como Administrador**, na pasta do repositório (precisa do SDK d
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
-.\deploy\instalar.ps1 -Cnpj 11222333000181 -Certificado C:\certs\empresa.pfx -SenhaAgora -PastaBackup D:\Backups\Buscador
+.\deploy\instalar.ps1 -Cnpj 11222333000181 -Certificado C:\certs\empresa.pfx -SenhaAgora -PastaBackup D:\Backups\Buscador -PastaEntrada C:\Entrada
 ```
 
 - `-SenhaAgora` pergunta a senha do certificado (sem exibir) e a grava na configuração do serviço (`HKLM\SYSTEM\CurrentControlSet\Services\BuscadorNotasSaida\Environment`, legível só por Administradores/SYSTEM). É o que permite o serviço subir sozinho após reiniciar. **A senha não vai para o `appsettings.json`.**
@@ -34,6 +34,22 @@ Set-ExecutionPolicy -Scope Process Bypass
    & "C:\BuscadorNotasSaida\BuscadorNotas.exe" sync --diagnostico --config C:\ProgramData\BuscadorNotasSaida\appsettings.json
    ```
 2. Se os resultados fizerem sentido, ligue a sincronização automática em **Configurações** (intervalo mínimo de 60 min).
+
+## Pasta de entrada (importação automática)
+
+Com `PastaEntrada` configurada (parâmetro `-PastaEntrada` do instalador ou no `appsettings.json`), tudo o que for colocado ali é importado sozinho, sem certificado e sem comando:
+
+| Arquivo | O que acontece |
+|---|---|
+| `.xml` de NF-e | indexado e copiado (bytes originais) para `xmls\ano\mes`; só notas emitidas pelo seu CNPJ |
+| `.xml` de evento de cancelamento | a nota passa a "Cancelada" (vale mesmo se a nota chegar depois) |
+| `.zip` com XMLs | cada XML é tratado; mostra quantos eram novos, repetidos, ignorados e inválidos |
+| `.txt` SPED Fiscal (começa com `|0000|`) | cria as chaves de saída como pendentes |
+| `.csv`/`.txt` com chaves de 44 dígitos | cria as chaves como pendentes (valida o dígito verificador) |
+
+Depois de tratado, o arquivo é **movido** (nunca apagado) para `processados\aaaa-mm`; o que não deu para ler vai para `rejeitados`, com um `.motivo.txt` ao lado. A pasta é verificada a cada 60 s (funciona em pasta de rede), e a tela **Configurações** mostra o estado, os últimos resultados e o botão "Verificar agora". Arquivos alterados há menos de 5 s (ainda sendo gravados) esperam a próxima verificação.
+
+Pontos de atenção: a pasta **não pode** ser a pasta de XMLs nem estar dentro dela; o serviço (SYSTEM) precisa de acesso a ela; para aceitar notas de outros emitentes use `EntradaAceitarOutrosCnpjs`. Exemplo de uso: o emissor/contador exporta os XMLs do mês e você solta o `.zip` na pasta.
 
 ## Logs
 

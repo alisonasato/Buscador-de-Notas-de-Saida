@@ -47,6 +47,10 @@ O comando `serve` sobe a interface (`src/BuscadorNotas/wwwroot`) e a API (`/api`
 
 **Sincronização.** Uma execução por vez. A Sefaz respondendo 656 coloca o servidor em espera (`blocked`) por `EsperaConsumoIndevidoMinutos`, e isso sobrevive a reinício. A sincronização automática vem desligada; ligue na tela de configurações (intervalo mínimo de 60 min).
 
+## Pasta de entrada
+
+Defina `PastaEntrada` no `appsettings.json` e rode `serve`: XMLs, ZIPs de XMLs, SPED (.txt) e listas de chaves (.csv) colocados lá são importados automaticamente (sem certificado), e movidos para `processados` ou `rejeitados`. Detalhes em [docs/instalacao-windows.md](docs/instalacao-windows.md#pasta-de-entrada-importação-automática).
+
 ## Uso diário no Windows
 
 Serviço do Windows, logs por dia e backup agendado: veja **[docs/instalacao-windows.md](docs/instalacao-windows.md)** (`deploy/instalar.ps1`). Comando de backup: `BuscadorNotas backup --destino D:\Backups\Buscador`.

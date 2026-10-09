@@ -65,6 +65,13 @@ public class Repositorio
                 NovasNotas INTEGER NOT NULL DEFAULT 0,
                 Mensagem TEXT
             );
+            CREATE TABLE IF NOT EXISTS ImportacaoLog (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                Quando TEXT NOT NULL,
+                Arquivo TEXT NOT NULL,
+                Resultado TEXT NOT NULL,
+                Detalhe TEXT
+            );
             CREATE TABLE IF NOT EXISTS Preferencias (
                 Chave TEXT PRIMARY KEY,
                 Valor TEXT NOT NULL
@@ -428,6 +435,35 @@ public class Repositorio
         cmd.CommandText = "UPDATE SincronizacaoLog SET FimEm = $f, Resultado = 'INTERROMPIDO' WHERE FimEm IS NULL";
         cmd.Parameters.AddWithValue("$f", agora.ToString("o", CultureInfo.InvariantCulture));
         cmd.ExecuteNonQuery();
+    }
+
+    // ---------- Importações da pasta monitorada ----------
+
+    public void RegistrarImportacao(string arquivo, string resultado, string? detalhe)
+    {
+        using var c = Abrir();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO ImportacaoLog (Quando, Arquivo, Resultado, Detalhe) VALUES ($q, $a, $r, $d);
+            DELETE FROM ImportacaoLog WHERE Id <= (SELECT MAX(Id) FROM ImportacaoLog) - 1000;
+            """;
+        cmd.Parameters.AddWithValue("$q", DateTimeOffset.Now.ToString("o", CultureInfo.InvariantCulture));
+        cmd.Parameters.AddWithValue("$a", arquivo);
+        cmd.Parameters.AddWithValue("$r", resultado);
+        cmd.Parameters.AddWithValue("$d", (object?)detalhe ?? DBNull.Value);
+        cmd.ExecuteNonQuery();
+    }
+
+    public List<ImportacaoRegistro> UltimasImportacoes(int n)
+    {
+        using var c = Abrir();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT Quando, Arquivo, Resultado, Detalhe FROM ImportacaoLog ORDER BY Id DESC LIMIT $n";
+        cmd.Parameters.AddWithValue("$n", n);
+        var lista = new List<ImportacaoRegistro>();
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) lista.Add(new ImportacaoRegistro(r.GetString(0), r.GetString(1), r.GetString(2), r.IsDBNull(3) ? null : r.GetString(3)));
+        return lista;
     }
 
     // ---------- Preferências (chave/valor) ----------

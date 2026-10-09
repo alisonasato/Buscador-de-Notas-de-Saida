@@ -10,7 +10,7 @@
   Pode ser executado de novo para atualizar: a configuração e os dados existentes são preservados.
 
 .EXAMPLE
-  .\deploy\instalar.ps1 -Cnpj 11222333000181 -Certificado C:\certs\empresa.pfx -SenhaAgora -PastaBackup D:\Backups\Buscador
+  .\deploy\instalar.ps1 -Cnpj 11222333000181 -Certificado C:\certs\empresa.pfx -SenhaAgora -PastaBackup D:\Backups\Buscador -PastaEntrada C:\Entrada
 #>
 #Requires -RunAsAdministrator
 [CmdletBinding()]
@@ -20,6 +20,7 @@ param(
     [string]$PastaInstalacao = "C:\BuscadorNotasSaida",
     [string]$PastaDados = "C:\ProgramData\BuscadorNotasSaida",
     [string]$PastaBackup,
+    [string]$PastaEntrada,
     [string]$HoraBackup = "02:00",
     [string]$Origem,
     [int]$Porta = 5080,
@@ -85,6 +86,7 @@ if (-not (Test-Path -LiteralPath $arquivoConfig)) {
         PastaXml                      = "xmls"
         BancoSqlite                   = "notas.db"
         PastaBackup                   = $(if ($PastaBackup) { $PastaBackup } else { "" })
+        PastaEntrada                  = $(if ($PastaEntrada) { $PastaEntrada } else { "" })
         ApiUrl                        = "http://127.0.0.1:$Porta"
         SincronizacaoAutomatica       = $false
         EsperaSemNovosMinutos         = 90
@@ -101,6 +103,11 @@ else {
         Copy-Item -LiteralPath $Certificado -Destination (Join-Path $PastaDados "certificado.pfx") -Force
         Write-Warning "Certificado copiado para $PastaDados\certificado.pfx (confira CertificadoPfx no appsettings.json)."
     }
+}
+
+if ($PastaEntrada) {
+    New-Item -ItemType Directory -Force -Path $PastaEntrada | Out-Null
+    Write-Warning "A pasta de entrada ($PastaEntrada) mantém as permissões atuais: dê acesso de escrita a quem vai colocar os arquivos (emissor/contador) e de leitura/escrita à conta do serviço (SYSTEM)."
 }
 
 # Só SYSTEM e Administradores acessam a pasta de dados (SIDs: independem do idioma do Windows).
@@ -185,5 +192,6 @@ elseif (-not $SenhaAgora) {
     Write-Host " - Defina a senha do certificado: rode de novo com -SenhaAgora (ou envie o certificado pela interface)."
 }
 Write-Host " - Configurações > ative a sincronização automática, se desejar (comece com 'sync --diagnostico', veja o guia)."
+if (-not $PastaEntrada) { Write-Host " - Para importar XMLs/SPED automaticamente, rode de novo com -PastaEntrada C:\Entrada (ou edite PastaEntrada no appsettings.json)." }
 if (-not $PastaBackup) { Write-Host " - Sem backup agendado: rode de novo com -PastaBackup D:\Backups\Buscador." }
 Write-Host " - Guia completo: docs\instalacao-windows.md"

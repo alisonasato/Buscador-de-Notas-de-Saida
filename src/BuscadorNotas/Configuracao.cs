@@ -22,6 +22,17 @@ public class Configuracao
     /// <summary>Pasta do arquivo de configuração; logs e dados relativos ficam aqui (não depende do diretório de trabalho).</summary>
     [JsonIgnore] public string PastaConfig { get; set; } = ".";
 
+    /// <summary>
+    /// Pasta monitorada pelo servidor: XMLs, ZIPs de XMLs, arquivos SPED (.txt) e listas de chaves (.csv) colocados aqui
+    /// são importados sozinhos e movidos para "processados" ou "rejeitados". Vazio = desligado.
+    /// </summary>
+    public string PastaEntrada { get; set; } = "";
+    public int EntradaIntervaloSegundos { get; set; } = 60;
+    /// <summary>Só importa arquivos sem alteração há pelo menos este tempo (evita ler arquivo ainda sendo gravado).</summary>
+    public int EntradaEstabilidadeSegundos { get; set; } = 5;
+    /// <summary>Aceita notas/eventos cujo emitente não é o CNPJ configurado.</summary>
+    public bool EntradaAceitarOutrosCnpjs { get; set; }
+
     public string PastaXml { get; set; } = "./xmls";
     public string BancoSqlite { get; set; } = "./notas.db";
     public int EsperaSemNovosMinutos { get; set; } = 90;
@@ -74,6 +85,7 @@ public class Configuracao
         cfg.BancoSqlite = Resolver(cfg.BancoSqlite);
         cfg.CertificadoPfx = Resolver(cfg.CertificadoPfx);
         cfg.PastaBackup = Resolver(cfg.PastaBackup);
+        cfg.PastaEntrada = Resolver(cfg.PastaEntrada);
         return cfg;
     }
 

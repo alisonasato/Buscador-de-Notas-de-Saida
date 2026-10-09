@@ -54,6 +54,9 @@ public static class ApiServer
         var storage = new Armazenamento(cfg.PastaXml);
         builder.Services.AddSingleton(sync);
         builder.Services.AddHostedService<SyncScheduler>();
+        var entrada = new EntradaService(cfg, repo, robo);
+        builder.Services.AddSingleton(entrada);
+        builder.Services.AddHostedService(_ => entrada);
 
         var app = builder.Build();
 
@@ -112,6 +115,7 @@ public static class ApiServer
         MapearNotas(api, repo, storage);
         MapearDashboard(api, repo, sync);
         MapearSync(api, sync);
+        MapearEntrada(api, entrada);
         MapearConfiguracao(api, cfg, repo, sync);
         return app;
     }
@@ -314,6 +318,20 @@ public static class ApiServer
             }
             catch (OperationCanceledException) { }
             finally { sync.Desassinar(canal); }
+        });
+    }
+
+    // ---------------------------------------------------------------- Pasta monitorada
+
+    private static void MapearEntrada(RouteGroupBuilder api, EntradaService entrada)
+    {
+        api.MapGet("/entrada", () => Results.Ok(entrada.Status()));
+
+        api.MapPost("/entrada/varrer", async () =>
+        {
+            if (!entrada.Ativa) return Results.BadRequest(new { erro = "Pasta de entrada não configurada (PastaEntrada no appsettings.json)." });
+            var n = await entrada.VarrerAsync();
+            return n < 0 ? Results.Conflict(new { erro = "Já existe uma verificação em andamento." }) : Results.Ok(new { tratados = n, status = entrada.Status() });
         });
     }
 

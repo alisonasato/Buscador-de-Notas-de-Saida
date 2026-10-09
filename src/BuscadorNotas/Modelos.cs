@@ -49,6 +49,8 @@ public class FiltroBusca
     public string? Xml { get; set; }
 }
 
+public record ImportacaoRegistro(string Quando, string Arquivo, string Resultado, string? Detalhe);
+
 public record PaginaNotas(List<NotaSaida> Itens, int Total, int Pagina, int Tamanho);
 
 public record ResumoDashboard(string Mes, int NotasNoMes, decimal ValorNoMes, int XmlBaixados, int XmlPendentes, int Total);

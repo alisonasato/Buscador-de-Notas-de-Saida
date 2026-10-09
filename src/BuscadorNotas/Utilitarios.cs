@@ -40,6 +40,17 @@ public class Armazenamento
         return caminho;
     }
 
+    /// <summary>Grava os bytes originais (sem reinterpretar o texto) em {raiz}/{Ano}/{Mes}/{chave}.xml.</summary>
+    public string SalvarBytes(string chave, byte[] dados)
+    {
+        if (!NfeXml.ChaveValida(chave)) throw new ArgumentException("Chave de acesso inválida.", nameof(chave));
+        var pasta = Path.Combine(_raiz, NfeXml.AnoDaChave(chave), NfeXml.MesDaChave(chave));
+        Directory.CreateDirectory(pasta);
+        var caminho = Path.Combine(pasta, chave + ".xml");
+        File.WriteAllBytes(caminho, dados);
+        return caminho;
+    }
+
     /// <summary>Copia o arquivo original (bytes intactos) para a estrutura {raiz}/{Ano}/{Mes}/{chave}.xml.</summary>
     public string Copiar(string chave, string arquivoOrigem)
     {

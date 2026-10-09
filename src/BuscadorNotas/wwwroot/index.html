@@ -217,6 +217,18 @@
           <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">CNPJ consultado: <span id="cfg-cnpj" class="font-mono">—</span> (definido no appsettings.json)</p>
           <div class="mt-4"><button class="btn-primary" id="btn-salvar-cfg">Salvar</button></div>
         </section>
+
+        <section class="card p-5" id="card-entrada">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <h2 class="font-semibold">Pasta monitorada</h2>
+              <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">XMLs, ZIPs de XMLs, arquivos SPED (.txt) e listas de chaves (.csv) colocados nesta pasta são importados sozinhos e movidos para <code class="font-mono text-xs">processados</code> (ou <code class="font-mono text-xs">rejeitados</code>, com o motivo). Nada é apagado.</p>
+            </div>
+            <button class="btn-ghost shrink-0" id="btn-varrer">Verificar agora</button>
+          </div>
+          <p id="entrada-estado" class="mt-3 text-sm break-words" role="status"></p>
+          <ul id="entrada-recentes" class="mt-3 divide-y divide-slate-100 text-sm dark:divide-slate-800"></ul>
+        </section>
       </div>
 
     </main>
@@ -668,6 +680,7 @@ async function carregarConfig() {
     $("#cfg-cnpj").textContent = c.cnpj ? docFmt(c.cnpj) : "não configurado";
   } catch (e) { toast(e.message, "erro"); }
   carregarCertificado();
+  carregarEntrada();
 }
 $("#btn-salvar-cfg").onclick = async () => {
   try {
@@ -697,6 +710,35 @@ $("#btn-testar-cert").onclick = async () => {
 $("#btn-tema").onclick = () => {
   const dark = document.documentElement.classList.toggle("dark");
   try { localStorage.setItem("tema", dark ? "dark" : "light"); } catch (e) {}
+};
+
+/* ------------------------------------------------------------------ pasta monitorada */
+const CHIP_IMP = {
+  IMPORTADO: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
+  IGNORADO: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
+  REJEITADO: "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300",
+};
+async function carregarEntrada() {
+  try {
+    const e = await apiJson("/api/entrada");
+    $("#btn-varrer").disabled = !e.ativa || !!e.erro || e.varrendo;
+    if (!e.ativa) $("#entrada-estado").innerHTML = "Desligada. Defina <code class=\"font-mono\">PastaEntrada</code> no appsettings.json e reinicie o serviço.";
+    else if (e.erro) $("#entrada-estado").innerHTML = `<span class="text-red-600 dark:text-red-400">${esc(e.erro)}</span>`;
+    else $("#entrada-estado").innerHTML = `<span class="font-mono text-xs">${esc(e.pasta)}</span><br>${e.aguardando} arquivo(s) aguardando · última verificação: ${e.ultimaVarredura ? dataHora(e.ultimaVarredura) : "ainda não"} · automática a cada ${e.intervaloSegundos}s`;
+    $("#entrada-recentes").innerHTML = e.recentes.length ? e.recentes.map(r => `
+      <li class="flex items-start gap-3 py-2"><span class="chip ${CHIP_IMP[r.resultado] || CHIP_IMP.IGNORADO} shrink-0">${esc(r.resultado.charAt(0) + r.resultado.slice(1).toLowerCase())}</span>
+      <div class="min-w-0"><p class="truncate font-medium" title="${esc(r.arquivo)}">${esc(r.arquivo)}</p><p class="break-words text-xs text-slate-500 dark:text-slate-400">${esc(r.detalhe || "")} · ${dataHora(r.quando)}</p></div></li>`).join("")
+      : (e.ativa ? `<li class="py-2 text-slate-500 dark:text-slate-400">Nenhum arquivo importado ainda.</li>` : "");
+  } catch (err) { /* sem API */ }
+}
+$("#btn-varrer").onclick = async () => {
+  const b = $("#btn-varrer"); b.disabled = true;
+  try {
+    const r = await apiJson("/api/entrada/varrer", { method: "POST" });
+    toast(`${r.tratados} arquivo(s) tratado(s)`, r.tratados ? "ok" : "aviso");
+    S.notasCarregadas = false; // a lista de notas recarrega na próxima visita
+  } catch (err) { toast(err.message, "erro"); }
+  carregarEntrada();
 };
 
 /* ------------------------------------------------------------------ início */
