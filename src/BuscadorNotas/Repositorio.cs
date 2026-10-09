@@ -366,6 +366,15 @@ public class Repositorio
     public NotaSaida? ObterNota(string chave) =>
         Buscar(new FiltroBusca { Chave = chave, Limite = 1 }).FirstOrDefault();
 
+    /// <summary>Código de UF (2 primeiros dígitos da chave) mais frequente entre as notas já conhecidas; null se não há notas.</summary>
+    public string? UfMaisFrequente()
+    {
+        using var c = Abrir();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT substr(ChaveAcesso, 1, 2) FROM NotasSaidaBaixadas GROUP BY 1 ORDER BY COUNT(*) DESC LIMIT 1";
+        return cmd.ExecuteScalar() as string;
+    }
+
     // ---------- Dashboard ----------
 
     /// <param name="mes">Formato aaaa-MM.</param>

@@ -22,9 +22,22 @@ public partial class Robo
 
     // ---------- Robô de NSU ----------
 
+    /// <summary>Define o cUFAutor a usar: o configurado (se for UF válida), senão o inferido das chaves, senão nenhum.</summary>
+    public void ResolverUf()
+    {
+        var conf = _cfg.CUFAutor?.Trim();
+        if (Configuracao.UfValida(conf)) { _cfg.CUFAutorEfetivo = conf; Console.WriteLine($"cUFAutor: {conf} ({Configuracao.Ufs[conf!]}, configurado)."); return; }
+        var inferida = _repo.UfMaisFrequente();
+        _cfg.CUFAutorEfetivo = Configuracao.UfValida(inferida) ? inferida : null;
+        Console.WriteLine(_cfg.CUFAutorEfetivo != null
+            ? $"cUFAutor: {_cfg.CUFAutorEfetivo} ({Configuracao.Ufs[_cfg.CUFAutorEfetivo]}, inferido das notas já importadas)."
+            : "cUFAutor: omitido (UF não configurada e sem notas para inferir; informe a UF em Configurações).");
+    }
+
     public async Task DiagnosticarAsync(int maxPaginas, string nsuInicial, CancellationToken ct)
     {
         _cfg.ValidarParaSefaz();
+        ResolverUf();
         using var cert = CertificadoService.ObterCertificado(_cfg.CertificadoPfx, _cfg.SenhaCertificado);
         using var http = SefazHttp.CriarClient(cert);
         await Diagnostico.ExecutarAsync(_cfg, new SefazDistribuicao(http, _cfg), maxPaginas, nsuInicial, ct);
@@ -46,6 +59,7 @@ public partial class Robo
     public async Task<ResultadoCiclo> ExecutarCicloAsync(Action<ProgressoSync>? progresso, CancellationToken ct)
     {
         _cfg.ValidarParaSefaz();
+        ResolverUf();
         using var cert = CertificadoService.ObterCertificado(_cfg.CertificadoPfx, _cfg.SenhaCertificado);
         using var http = SefazHttp.CriarClient(cert);
         return await UmCicloAsync(new SefazDistribuicao(http, _cfg), progresso, ct);
@@ -85,7 +99,11 @@ public partial class Robo
                     return new ResultadoCiclo("656", novas, TimeSpan.FromMinutes(_cfg.EsperaConsumoIndevidoMinutos), ret.XMotivo);
 
                 default:
-                    throw new InvalidOperationException($"Retorno inesperado da Sefaz: {ret.CStat} - {ret.XMotivo}");
+                    Console.WriteLine($"  Requisição enviada: {dist.UltimaRequisicao}");
+                    var dica = ret.CStat == "215"
+                        ? " Dica: a Sefaz rejeitou o formato do pedido; confira a UF da empresa em Configurações (cUFAutor) e envie o log ao suporte."
+                        : "";
+                    throw new InvalidOperationException($"Retorno inesperado da Sefaz: {ret.CStat} - {ret.XMotivo}.{dica}");
             }
         }
         return new ResultadoCiclo("CANCELADO", novas, TimeSpan.Zero, "Sincronização cancelada.");

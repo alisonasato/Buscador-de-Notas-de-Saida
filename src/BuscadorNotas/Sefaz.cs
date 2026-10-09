@@ -75,19 +75,27 @@ public class SefazDistribuicao
         _cfg = cfg;
     }
 
-    public static XElement MontarDistDFeInt(Configuracao cfg, string ultNsu) =>
-        new(NsNfe + "distDFeInt",
+    /// <summary>Último distDFeInt enviado (para diagnóstico quando a Sefaz rejeita).</summary>
+    public string? UltimaRequisicao { get; private set; }
+
+    /// <summary>distDFeInt v1.01: tpAmb, [cUFAutor], CNPJ, distNSU/ultNSU (nesta ordem). cUFAutor só entra se for uma UF válida.</summary>
+    public static XElement MontarDistDFeInt(Configuracao cfg, string ultNsu)
+    {
+        var el = new XElement(NsNfe + "distDFeInt",
             new XAttribute("versao", "1.01"),
-            new XElement(NsNfe + "tpAmb", cfg.Ambiente),
-            new XElement(NsNfe + "cUFAutor", cfg.CUFAutor),
-            new XElement(NsNfe + "CNPJ", cfg.Cnpj),
-            new XElement(NsNfe + "distNSU",
-                new XElement(NsNfe + "ultNSU", ultNsu.PadLeft(15, '0'))));
+            new XElement(NsNfe + "tpAmb", cfg.Ambiente));
+        if (Configuracao.UfValida(cfg.CUFAutorEfetivo)) el.Add(new XElement(NsNfe + "cUFAutor", cfg.CUFAutorEfetivo));
+        el.Add(new XElement(NsNfe + "CNPJ", cfg.Cnpj),
+               new XElement(NsNfe + "distNSU", new XElement(NsNfe + "ultNSU", ultNsu.PadLeft(15, '0'))));
+        return el;
+    }
 
     public async Task<RetornoDistribuicao> ConsultarAsync(string ultNsu, CancellationToken ct)
     {
+        var msg = MontarDistDFeInt(_cfg, ultNsu);
+        UltimaRequisicao = msg.ToString(SaveOptions.DisableFormatting);
         var resp = await SefazHttp.EnviarSoapAsync(_http, _cfg.UrlDistribuicao, _cfg.Soap12, NsWsdl,
-            "nfeDistDFeInteresse", MontarDistDFeInt(_cfg, ultNsu), ct);
+            "nfeDistDFeInteresse", msg, ct);
         return InterpretarRetorno(resp);
     }
 

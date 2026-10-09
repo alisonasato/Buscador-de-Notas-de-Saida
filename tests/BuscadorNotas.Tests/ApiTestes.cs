@@ -449,4 +449,20 @@ public class ApiTestes
         nova.AplicarPreferencias(f.Repo);
         Assert.Equal("99888777000100", nova.Cnpj);
     }
+
+    [Fact]
+    public async Task Uf_pela_interface_valida_e_persiste()
+    {
+        await using var f = await Semeada();
+        Assert.Equal(HttpStatusCode.BadRequest, (await f.Http.PutAsJsonAsync("/api/config", new { cufAutor = "91" })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await f.Http.PutAsJsonAsync("/api/config", new { cufAutor = "35" })).StatusCode);
+        Assert.Equal("35", (await f.Http.GetFromJsonAsync<JsonElement>("/api/config")).GetProperty("cufAutor").GetString());
+
+        var nova = new Configuracao();
+        nova.AplicarPreferencias(f.Repo);
+        Assert.Equal("35", nova.CUFAutor);
+
+        Assert.Equal(HttpStatusCode.OK, (await f.Http.PutAsJsonAsync("/api/config", new { cufAutor = "" })).StatusCode); // limpar
+        Assert.Equal("", (await f.Http.GetFromJsonAsync<JsonElement>("/api/config")).GetProperty("cufAutor").GetString());
+    }
 }

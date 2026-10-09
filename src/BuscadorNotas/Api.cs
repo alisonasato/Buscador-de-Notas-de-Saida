@@ -10,7 +10,7 @@ using Microsoft.Extensions.FileProviders;
 
 namespace BuscadorNotas;
 
-public record ConfigRequisicao(int? IntervaloMinutos, bool? Automatica, int? Ambiente, string? Cnpj);
+public record ConfigRequisicao(int? IntervaloMinutos, bool? Automatica, int? Ambiente, string? Cnpj, string? CufAutor = null);
 public record ZipRequisicao(List<string>? Chaves);
 
 /// <summary>API HTTP (Minimal API) + arquivos estáticos da interface (wwwroot). Reutiliza Repositorio, Robo e SyncService.</summary>
@@ -351,6 +351,8 @@ public static class ApiServer
             automatica = cfg.SincronizacaoAutomatica,
             ambiente = cfg.Ambiente,
             cnpj = cfg.Cnpj,
+            cufAutor = Configuracao.UfValida(cfg.CUFAutor) ? cfg.CUFAutor : "",
+            cufAutorEfetivo = cfg.CUFAutorEfetivo,
             apiProtegidaPorToken = !string.IsNullOrEmpty(cfg.ApiToken),
         };
 
@@ -362,12 +364,15 @@ public static class ApiServer
                 return Results.BadRequest(new { erro = "O intervalo deve ser 0 (somente manual) ou entre 60 e 1440 minutos, para evitar bloqueio da Sefaz." });
             if (b.Ambiente is { } a && a is not (1 or 2))
                 return Results.BadRequest(new { erro = "Ambiente deve ser 1 (produção) ou 2 (homologação)." });
+            if (b.CufAutor is { Length: > 0 } uf0 && !Configuracao.UfValida(uf0))
+                return Results.BadRequest(new { erro = "UF inválida: use o código IBGE de 2 dígitos (ex.: 35 para SP)." });
             if (!string.IsNullOrWhiteSpace(b.Cnpj) && !Documento.CnpjValido(b.Cnpj))
                 return Results.BadRequest(new { erro = "CNPJ inválido (confira os 14 dígitos)." });
 
             if (b.IntervaloMinutos is { } iv) { cfg.EsperaSemNovosMinutos = iv; repo.SalvarPref("intervaloMinutos", iv.ToString(CultureInfo.InvariantCulture)); }
             if (b.Automatica is { } au) { cfg.SincronizacaoAutomatica = au; repo.SalvarPref("automatica", au.ToString()); }
             if (b.Ambiente is { } am) { cfg.Ambiente = am; repo.SalvarPref("ambiente", am.ToString(CultureInfo.InvariantCulture)); }
+            if (b.CufAutor is { } uf) { cfg.CUFAutor = uf; repo.SalvarPref("cufAutor", uf); }
             if (!string.IsNullOrWhiteSpace(b.Cnpj))
             {
                 var c = new string(b.Cnpj.Where(char.IsDigit).ToArray());

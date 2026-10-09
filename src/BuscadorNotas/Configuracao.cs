@@ -8,7 +8,25 @@ public class Configuracao
     public string Cnpj { get; set; } = "";
     public string CertificadoPfx { get; set; } = "";
     public int Ambiente { get; set; } = 1; // 1-Produção, 2-Homologação
-    public string CUFAutor { get; set; } = "91";
+    /// <summary>
+    /// Código IBGE da UF da empresa (ex.: 35 = SP), enviado como cUFAutor na distribuição. Vazio = tenta inferir das
+    /// chaves já importadas; se não for possível, o campo (opcional no esquema, ao que consta) é omitido.
+    /// O valor "91" (Ambiente Nacional) do guia original NÃO é uma UF válida e é ignorado.
+    /// </summary>
+    public string CUFAutor { get; set; } = "";
+
+    /// <summary>Valor realmente usado na última consulta (configurado ou inferido); null = omitido.</summary>
+    [JsonIgnore] public string? CUFAutorEfetivo { get; set; }
+
+    public static readonly IReadOnlyDictionary<string, string> Ufs = new Dictionary<string, string>
+    {
+        ["11"] = "RO", ["12"] = "AC", ["13"] = "AM", ["14"] = "RR", ["15"] = "PA", ["16"] = "AP", ["17"] = "TO",
+        ["21"] = "MA", ["22"] = "PI", ["23"] = "CE", ["24"] = "RN", ["25"] = "PB", ["26"] = "PE", ["27"] = "AL", ["28"] = "SE", ["29"] = "BA",
+        ["31"] = "MG", ["32"] = "ES", ["33"] = "RJ", ["35"] = "SP", ["41"] = "PR", ["42"] = "SC", ["43"] = "RS",
+        ["50"] = "MS", ["51"] = "MT", ["52"] = "GO", ["53"] = "DF",
+    };
+
+    public static bool UfValida(string? codigo) => codigo != null && Ufs.ContainsKey(codigo);
     public bool Soap12 { get; set; } = true;
     public string UrlDistribuicao { get; set; } =
         "https://www1.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx";
@@ -118,6 +136,7 @@ public class Configuracao
     /// <summary>Aplica as escolhas feitas na interface (guardadas no banco) por cima do arquivo de configuração.</summary>
     public void AplicarPreferencias(Repositorio repo)
     {
+        if (repo.ObterPref("cufAutor") is { } uf && (uf == "" || UfValida(uf))) CUFAutor = uf;
         if (repo.ObterPref("cnpj") is { } c && Documento.CnpjValido(c)) Cnpj = new string(c.Where(char.IsDigit).ToArray());
         if (int.TryParse(repo.ObterPref("intervaloMinutos"), out var i) && i >= 0) EsperaSemNovosMinutos = i;
         if (bool.TryParse(repo.ObterPref("automatica"), out var a)) SincronizacaoAutomatica = a;

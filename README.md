@@ -64,6 +64,10 @@ Defina `PastaEntrada` no `appsettings.json` e rode `serve`: XMLs, ZIPs de XMLs, 
 
 Serviço do Windows, logs por dia e backup agendado: veja **[docs/instalacao-windows.md](docs/instalacao-windows.md)** (`deploy/instalar.ps1`). Comando de backup: `BuscadorNotas backup --destino D:\Backups\Buscador`.
 
+## Erro 215 "Falha no esquema XML" na sincronização
+
+Significa que a Sefaz recebeu o pedido (certificado e conexão estão ok) mas recusou o formato. O `cUFAutor` do guia original (`91`) não é uma UF válida e agora é ignorado: informe a **UF da empresa** em *Configurações* (ou `"CUFAutor": "35"` no `appsettings.json`, código IBGE de 2 dígitos). Sem UF configurada, o programa tenta inferi-la das chaves já importadas e, se não conseguir, omite o campo. O pedido enviado é impresso na janela/log (`Requisição enviada: ...`) para diagnóstico.
+
 ## ⚠️ Pontos a verificar antes de usar em produção
 
 Este código **não foi compilado nem executado** no ambiente em que foi escrito (sem .NET SDK/Sefaz disponíveis). Rode `dotnet build` e `dotnet test` primeiro. Além disso, há pontos sobre os quais não tenho certeza e que dependem da documentação oficial vigente (Portal Nacional da NF-e):

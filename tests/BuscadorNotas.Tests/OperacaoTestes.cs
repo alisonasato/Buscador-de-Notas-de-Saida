@@ -154,4 +154,53 @@ public class OperacaoTestes
         }
         finally { Limpar(dir); }
     }
+
+    [Theory]
+    [InlineData("35", true)]
+    [InlineData("91", false)]   // "Ambiente Nacional" do guia original: não é UF
+    [InlineData("", false)]
+    [InlineData("SP", false)]
+    public void Uf_valida(string codigo, bool esperado) => Assert.Equal(esperado, Configuracao.UfValida(codigo));
+
+    [Fact]
+    public void DistDFeInt_so_envia_cUFAutor_valido_e_na_ordem_do_esquema()
+    {
+        var cfg = new Configuracao { Cnpj = "11222333000181", Ambiente = 1 };
+
+        cfg.CUFAutorEfetivo = "91"; // valor do guia: não pode ir
+        var sem = SefazDistribuicao.MontarDistDFeInt(cfg, "7");
+        Assert.DoesNotContain("cUFAutor", sem.ToString());
+        Assert.Equal(new[] { "tpAmb", "CNPJ", "distNSU" }, sem.Elements().Select(e => e.Name.LocalName).ToArray());
+
+        cfg.CUFAutorEfetivo = "35";
+        var com = SefazDistribuicao.MontarDistDFeInt(cfg, "7");
+        Assert.Equal(new[] { "tpAmb", "cUFAutor", "CNPJ", "distNSU" }, com.Elements().Select(e => e.Name.LocalName).ToArray());
+        Assert.Equal("35", com.Elements().First(e => e.Name.LocalName == "cUFAutor").Value);
+        Assert.Equal("000000000000007", com.Descendants().First(e => e.Name.LocalName == "ultNSU").Value);
+    }
+
+    [Fact]
+    public void Robo_resolve_uf_configurada_inferida_ou_omitida()
+    {
+        var dir = NovaPasta();
+        try
+        {
+            var (cfg, repo) = Ambiente(dir);
+            var robo = new Robo(cfg, repo);
+
+            cfg.CUFAutor = "91";                       // valor inválido do guia
+            robo.ResolverUf();
+            Assert.Null(cfg.CUFAutorEfetivo);          // sem notas para inferir: omite
+
+            repo.InserirSeNaoExiste(new NotaSaida { ChaveAcesso = Chave1, Status = StatusNota.Pendente });
+            repo.InserirSeNaoExiste(new NotaSaida { ChaveAcesso = Chave2, Status = StatusNota.Pendente });
+            robo.ResolverUf();
+            Assert.Equal("35", cfg.CUFAutorEfetivo);   // inferida das chaves (35...)
+
+            cfg.CUFAutor = "41";                       // configurada vence
+            robo.ResolverUf();
+            Assert.Equal("41", cfg.CUFAutorEfetivo);
+        }
+        finally { Limpar(dir); }
+    }
 }
