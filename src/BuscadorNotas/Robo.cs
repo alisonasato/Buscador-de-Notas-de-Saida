@@ -129,7 +129,7 @@ public partial class Robo
                     ChaveAcesso = n.Chave,
                     CnpjEmitente = NfeXml.CnpjDaChave(n.Chave),
                     NumeroNota = n.NumeroDoc.TrimStart('0') is { Length: > 0 } s ? s : "0",
-                    Serie = n.Serie,
+                    Serie = n.Serie.TrimStart('0') is { Length: > 0 } sr ? sr : "0",
                     DataEmissao = n.DataDoc,
                     ValorTotal = n.Valor,
                     Status = StatusNota.Pendente,
