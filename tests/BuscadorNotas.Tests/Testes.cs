@@ -102,4 +102,57 @@ public class Testes
         var x = SefazDistribuicao.MontarDistDFeInt(cfg, "42");
         Assert.Equal("000000000000042", x.Descendants().First(e => e.Name.LocalName == "ultNSU").Value);
     }
+
+    private static string ChaveComDv(string chave43) => chave43 + NfeXml.CalcularDv(chave43);
+
+    [Fact]
+    public void DigitoVerificador_confere()
+    {
+        var boa = ChaveComDv("3524101122233300018155001000000123100000001");
+        Assert.True(NfeXml.DigitoVerificadorOk(boa));
+        var ruim = boa[..43] + ((boa[43] - '0' + 1) % 10);
+        Assert.False(NfeXml.DigitoVerificadorOk(ruim));
+    }
+
+    [Fact]
+    public void ExtratorChaves_acha_em_csv_e_no_formato_do_danfe()
+    {
+        var boa = ChaveComDv("3524101122233300018155001000000123100000001");
+        var agrupada = string.Join(" ", Enumerable.Range(0, 11).Select(i => boa.Substring(i * 4, 4)));
+        var r = ExtratorChaves.Extrair(new[] { $"123;15/10/2024;{boa};100,00", agrupada, "sem chave aqui 12345" }).ToList();
+        Assert.Equal(new[] { boa, boa }, r);
+    }
+
+    [Fact]
+    public void ImportarChaves_e_ImportarXmls_integracao()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"imp-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        var db = Path.Combine(dir, "t.db");
+        try
+        {
+            var cfg = new Configuracao { Cnpj = "11222333000181", PastaXml = Path.Combine(dir, "saida") };
+            var repo = new Repositorio(db);
+            var robo = new Robo(cfg, repo);
+
+            var boa = ChaveComDv("3524101122233300018155001000000123100000001");
+            var outroCnpj = ChaveComDv("3524109999999900019955001000000124100000001");
+            var lista = Path.Combine(dir, "chaves.csv");
+            File.WriteAllLines(lista, new[] { boa, outroCnpj, boa[..43] + "X" });
+            var r1 = robo.ImportarChaves(lista, false);
+            Assert.Equal(1, r1.Novos);
+            Assert.Equal(1, r1.Ignorados);
+
+            var pastaXml = Path.Combine(dir, "xmls");
+            Directory.CreateDirectory(pastaXml);
+            File.WriteAllText(Path.Combine(pastaXml, "a.xml"), NfeProcXml);
+            File.WriteAllText(Path.Combine(pastaXml, "lixo.xml"), "<outra/>");
+            var r2 = robo.ImportarXmls(pastaXml, false);
+            Assert.Equal(1, r2.Novos);
+            Assert.Equal(1, r2.Ignorados);
+            Assert.True(File.Exists(Path.Combine(dir, "saida", "2024", "10", Chave + ".xml")));
+            Assert.Equal(StatusNota.Baixado, Assert.Single(repo.Buscar(new FiltroBusca { Chave = Chave })).Status);
+        }
+        finally { Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); Directory.Delete(dir, true); }
+    }
 }

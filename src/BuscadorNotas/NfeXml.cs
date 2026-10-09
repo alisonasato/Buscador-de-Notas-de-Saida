@@ -11,6 +11,22 @@ public static class NfeXml
 
     public static bool ChaveValida(string? chave) => chave != null && Chave44.IsMatch(chave);
 
+    /// <summary>Dígito verificador da chave (módulo 11, pesos 2..9 da direita para a esquerda sobre os 43 primeiros dígitos).</summary>
+    public static int CalcularDv(string chave43)
+    {
+        int soma = 0, peso = 2;
+        for (int i = chave43.Length - 1; i >= 0; i--)
+        {
+            soma += (chave43[i] - '0') * peso;
+            peso = peso == 9 ? 2 : peso + 1;
+        }
+        var resto = soma % 11;
+        return resto < 2 ? 0 : 11 - resto;
+    }
+
+    public static bool DigitoVerificadorOk(string chave) =>
+        ChaveValida(chave) && CalcularDv(chave[..43]) == chave[43] - '0';
+
     private static XElement? Primeiro(XContainer raiz, string nomeLocal) =>
         raiz.Descendants().FirstOrDefault(e => e.Name.LocalName == nomeLocal);
 

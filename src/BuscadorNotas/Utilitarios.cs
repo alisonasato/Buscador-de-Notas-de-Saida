@@ -39,4 +39,16 @@ public class Armazenamento
         File.WriteAllText(caminho, xml, new UTF8Encoding(false));
         return caminho;
     }
+
+    /// <summary>Copia o arquivo original (bytes intactos) para a estrutura {raiz}/{Ano}/{Mes}/{chave}.xml.</summary>
+    public string Copiar(string chave, string arquivoOrigem)
+    {
+        if (!NfeXml.ChaveValida(chave)) throw new ArgumentException("Chave de acesso inválida.", nameof(chave));
+        var pasta = Path.Combine(_raiz, NfeXml.AnoDaChave(chave), NfeXml.MesDaChave(chave));
+        Directory.CreateDirectory(pasta);
+        var destino = Path.Combine(pasta, chave + ".xml");
+        if (Path.GetFullPath(destino) != Path.GetFullPath(arquivoOrigem))
+            File.Copy(arquivoOrigem, destino, overwrite: true);
+        return destino;
+    }
 }

@@ -2,7 +2,7 @@ using System.Xml.Linq;
 
 namespace BuscadorNotas;
 
-public class Robo
+public partial class Robo
 {
     private readonly Configuracao _cfg;
     private readonly Repositorio _repo;

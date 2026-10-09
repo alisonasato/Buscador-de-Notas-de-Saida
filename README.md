@@ -4,7 +4,8 @@ Sistema em C# (.NET 8) de custo zero para obter, guardar e **pesquisar** NF-e de
 
 1. **Robô de NSU** (`sync`) – consulta `nfeDistDFeInteresse` com certificado A1, descompacta `docZip`, grava os XMLs em `{PastaXml}/{ano}/{mes}/{chave}.xml` e indexa no SQLite.
 2. **Resgate histórico** (`importar-sped` + `baixar-pendentes`) – lê registros `C100` de saída do SPED Fiscal, cria pendências e consulta cada chave via `nfeConsultaProtocolo`.
-3. **Busca** (`buscar`) – pesquisa local por chave, número, série, período, destinatário, valor e status.
+3. **Importações manuais** (`importar-xml`, `importar-chaves`) – não precisam de certificado: indexam XMLs obtidos do emissor/contador e chaves vindas de planilhas. Por padrão só aceitam notas emitidas pelo `Cnpj` configurado (`--todos` desativa).
+4. **Busca** (`buscar`) – pesquisa local por chave, número, série, período, destinatário, valor e status.
 
 ## Uso
 
@@ -15,6 +16,8 @@ export NFE_PFX_SENHA='senha-do-certificado'                                     
 dotnet run --project src/BuscadorNotas -- sync --loop
 dotnet run --project src/BuscadorNotas -- importar-sped SPED_2024_01.txt SPED_2024_02.txt
 dotnet run --project src/BuscadorNotas -- baixar-pendentes --max 50
+dotnet run --project src/BuscadorNotas -- importar-xml C:\\EmissorAntigo\\XML      # indexa XMLs de saída de uma pasta (copia p/ ano/mes)
+dotnet run --project src/BuscadorNotas -- importar-chaves chaves.csv                 # lista/CSV com chaves de 44 dígitos (valida o DV)
 dotnet run --project src/BuscadorNotas -- buscar --de 2024-10-01 --ate 2024-10-31 --destinatario "cliente" --vmin 100
 dotnet test
 ```

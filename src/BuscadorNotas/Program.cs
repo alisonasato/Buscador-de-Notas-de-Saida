@@ -10,6 +10,11 @@ const string Ajuda = """
       sync [--loop]               Robô de NSU (nfeDistDFeInteresse). Com --loop roda continuamente.
       sync --diagnostico [--max-paginas N] [--nsu-inicial N]
                                   Teste: lista em que papel (emitente/destinatário) seu CNPJ aparece, sem gravar nada.
+      importar-xml <pasta> [--todos]
+                                  Indexa XMLs de NF-e de uma pasta (subpastas incluídas) e copia para ano/mes.
+      importar-chaves <arquivo> [--todos]
+                                  Lê chaves de 44 dígitos de uma lista/CSV e cria pendências.
+                                  (--todos: não exige que o emitente seja o CNPJ configurado)
       importar-sped <arq...>      Lê registros C100 de saída de arquivos SPED Fiscal e cria pendências.
       baixar-pendentes [--max N]  Consulta por chave (nfeConsultaProtocolo) as notas PENDENTES.
       buscar [filtros]            Pesquisa no banco local.
@@ -48,6 +53,19 @@ try
             else
                 await robo.SincronizarAsync(resto.Contains("--loop"), cts.Token);
             break;
+
+        case "importar-xml":
+        case "importar-chaves":
+        {
+            var alvo = resto.FirstOrDefault(a => !a.StartsWith("--"));
+            if (alvo == null) { Console.Error.WriteLine("Informe o caminho."); return 2; }
+            var todos = resto.Contains("--todos");
+            var res = args[0] == "importar-xml" ? robo.ImportarXmls(alvo, todos) : robo.ImportarChaves(alvo, todos);
+            foreach (var aviso in res.Avisos.Take(50)) Console.WriteLine("  aviso: " + aviso);
+            if (res.Avisos.Count > 50) Console.WriteLine($"  ... e mais {res.Avisos.Count - 50} aviso(s).");
+            Console.WriteLine($"Lidos: {res.Lidos} | novos: {res.Novos} | ignorados: {res.Ignorados}");
+            break;
+        }
 
         case "importar-sped":
             if (resto.Length == 0) { Console.Error.WriteLine("Informe ao menos um arquivo SPED."); return 2; }
