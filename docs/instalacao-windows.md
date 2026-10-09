@@ -2,6 +2,8 @@
 
 > **Aviso:** os scripts `deploy/instalar.ps1` e `deploy/desinstalar.ps1` tiveram a **sintaxe validada** e a lógica de configuração testada em Linux, mas **não foram executados em um Windows** (criação do serviço, tarefa agendada, `icacls`, registro). Rode primeiro em uma máquina de teste e leia a saída. O programa em si (backup, logs, configuração) tem testes automatizados.
 
+> **Só quer testar?** Não precisa instalar nada: use o executável único (veja "Executável único" no README), dê duplo clique e pronto. Este guia é para deixar rodando como serviço.
+
 ## O que será instalado
 
 | Item | Local padrão |

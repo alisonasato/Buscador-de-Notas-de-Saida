@@ -47,7 +47,7 @@ if (-not $Origem) {
     }
     $Origem = Join-Path ([IO.Path]::GetTempPath()) ("buscador-publish-" + [Guid]::NewGuid().ToString("N"))
     Escrever "Publicando (isso pode levar alguns minutos)..."
-    & dotnet publish (Join-Path $raizRepo "src\BuscadorNotas") -c Release -r win-x64 --self-contained true -o $Origem
+    & dotnet publish (Join-Path $raizRepo "src\BuscadorNotas") -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:DebugType=none -p:DebugSymbols=false -o $Origem
     if ($LASTEXITCODE -ne 0) { throw "dotnet publish falhou (código $LASTEXITCODE)." }
 }
 $exeOrigem = Join-Path $Origem "BuscadorNotas.exe"

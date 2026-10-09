@@ -129,4 +129,29 @@ public class OperacaoTestes
         }
         finally { Limpar(dir); }
     }
+
+    [Theory]
+    [InlineData("11.222.333/0001-81", true)]
+    [InlineData("11222333000181", true)]
+    [InlineData("11222333000182", false)]   // dígito verificador errado
+    [InlineData("00000000000000", false)]
+    [InlineData("1122233300018", false)]    // 13 dígitos
+    [InlineData("", false)]
+    public void Cnpj_valido(string cnpj, bool esperado) => Assert.Equal(esperado, Documento.CnpjValido(cnpj));
+
+    [Fact]
+    public void Configuracao_padrao_criada_na_primeira_execucao_e_carregavel()
+    {
+        var dir = NovaPasta();
+        try
+        {
+            var arq = Path.Combine(dir, "novo", "appsettings.json");
+            Configuracao.CriarPadrao(arq);
+            var cfg = Configuracao.Carregar(arq);
+            Assert.Equal("", cfg.Cnpj);
+            Assert.Equal(Path.Combine(dir, "novo", "notas.db"), cfg.BancoSqlite);
+            Assert.Equal(Path.Combine(dir, "novo", "entrada"), cfg.PastaEntrada);
+        }
+        finally { Limpar(dir); }
+    }
 }

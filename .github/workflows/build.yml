@@ -1,0 +1,55 @@
+name: build
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Testes
+        run: dotnet test --configuration Release
+
+      - name: Publicar executável único (win-x64)
+        run: >
+          dotnet publish src/BuscadorNotas -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:EnableCompressionInSingleFile=true -p:DebugType=none -p:DebugSymbols=false -o dist
+
+      - name: Teste de fumaça do .exe (pasta vazia, sem configuração)
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "fumaca"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          Copy-Item dist\BuscadorNotas.exe $dir
+          $p = Start-Process -FilePath "$dir\BuscadorNotas.exe" -ArgumentList "serve" -WorkingDirectory $dir -PassThru `
+               -RedirectStandardOutput "$dir\out.txt" -RedirectStandardError "$dir\err.txt"
+          $ok = $false
+          for ($i = 0; $i -lt 40 -and -not $ok; $i++) {
+              Start-Sleep -Seconds 1
+              try { $null = Invoke-RestMethod -Uri "http://127.0.0.1:5080/api/sync/status" -TimeoutSec 3; $ok = $true } catch { }
+          }
+          if ($ok) {
+              $html = (Invoke-WebRequest -Uri "http://127.0.0.1:5080/" -UseBasicParsing).Content
+              $dash = Invoke-RestMethod -Uri "http://127.0.0.1:5080/api/dashboard"
+              Write-Host "dashboard total de notas: $($dash.resumo.total)"
+          }
+          Get-Content "$dir\out.txt", "$dir\err.txt" -ErrorAction SilentlyContinue
+          Get-ChildItem $dir | Format-Table Name, Length
+          Stop-Process -Id $p.Id -Force
+          if (-not $ok) { throw "O executável não respondeu em 40 s." }
+          if ($html -notmatch "Notas de Sa") { throw "A interface embutida não foi servida." }
+          if (-not (Test-Path "$dir\appsettings.json")) { throw "A configuração inicial não foi criada." }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BuscadorNotas-win-x64
+          path: dist/BuscadorNotas.exe
+          if-no-files-found: error

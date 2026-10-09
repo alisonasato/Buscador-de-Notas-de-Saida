@@ -13,12 +13,14 @@
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.0" />
   </ItemGroup>
 
+  <!-- A interface vai DENTRO do executável (um único arquivo, sem pasta wwwroot ao lado). -->
   <ItemGroup>
-    <Content Update="wwwroot\**" CopyToOutputDirectory="PreserveNewest" />
+    <Content Remove="wwwroot\**" />
+    <EmbeddedResource Include="wwwroot\**" />
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="appsettings.exemplo.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="appsettings.exemplo.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" />
   </ItemGroup>
 
 </Project>

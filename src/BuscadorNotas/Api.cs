@@ -4,11 +4,13 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Diagnostics;
 using Microsoft.AspNetCore.Http.Features;
+using Microsoft.Extensions.FileProviders;
 
 namespace BuscadorNotas;
 
-public record ConfigRequisicao(int? IntervaloMinutos, bool? Automatica, int? Ambiente);
+public record ConfigRequisicao(int? IntervaloMinutos, bool? Automatica, int? Ambiente, string? Cnpj);
 public record ZipRequisicao(List<string>? Chaves);
 
 /// <summary>API HTTP (Minimal API) + arquivos estáticos da interface (wwwroot). Reutiliza Repositorio, Robo e SyncService.</summary>
@@ -19,9 +21,15 @@ public static class ApiServer
     private const int MaxLinhasCsv = 50_000;
     private static readonly Regex MesRegex = new(@"^\d{4}-(0[1-9]|1[0-2])$", RegexOptions.Compiled);
 
-    public static async Task ServirAsync(Configuracao cfg, Repositorio repo, Robo robo, string url, CancellationToken ct)
+    public static async Task ServirAsync(Configuracao cfg, Repositorio repo, Robo robo, string url, CancellationToken ct, bool abrirNavegador = false)
     {
         var app = Construir(cfg, repo, robo, url);
+        if (abrirNavegador)
+            app.Lifetime.ApplicationStarted.Register(() =>
+            {
+                try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); }
+                catch (Exception) { /* sem navegador padrão: o endereço já foi impresso */ }
+            });
         Console.WriteLine($"Interface em {url}  (Ctrl+C para encerrar)");
         if (string.IsNullOrEmpty(cfg.ApiToken))
             Console.WriteLine("  Sem ApiToken: acesso permitido apenas por localhost.");
@@ -38,13 +46,9 @@ public static class ApiServer
             throw new InvalidOperationException(
                 "Para expor a interface fora de localhost defina ApiToken no appsettings.json (a API entrega dados fiscais).");
 
-        var webRoot = new[] { Path.Combine(AppContext.BaseDirectory, "wwwroot"), Path.Combine(Directory.GetCurrentDirectory(), "wwwroot") }
-            .FirstOrDefault(Directory.Exists);
-
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions
         {
             ContentRootPath = AppContext.BaseDirectory,
-            WebRootPath = webRoot,
         });
         builder.Logging.SetMinimumLevel(LogLevel.Warning);
         builder.WebHost.UseUrls(url);
@@ -108,8 +112,10 @@ public static class ApiServer
             await next();
         });
 
-        app.UseDefaultFiles();
-        app.UseStaticFiles();
+        // A interface fica embutida no assembly (funciona em executável de arquivo único).
+        var arquivos = new EmbeddedFileProvider(typeof(ApiServer).Assembly, "BuscadorNotas.wwwroot");
+        app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = arquivos });
+        app.UseStaticFiles(new StaticFileOptions { FileProvider = arquivos });
 
         var api = app.MapGroup("/api");
         MapearNotas(api, repo, storage);
@@ -356,10 +362,17 @@ public static class ApiServer
                 return Results.BadRequest(new { erro = "O intervalo deve ser 0 (somente manual) ou entre 60 e 1440 minutos, para evitar bloqueio da Sefaz." });
             if (b.Ambiente is { } a && a is not (1 or 2))
                 return Results.BadRequest(new { erro = "Ambiente deve ser 1 (produção) ou 2 (homologação)." });
+            if (!string.IsNullOrWhiteSpace(b.Cnpj) && !Documento.CnpjValido(b.Cnpj))
+                return Results.BadRequest(new { erro = "CNPJ inválido (confira os 14 dígitos)." });
 
             if (b.IntervaloMinutos is { } iv) { cfg.EsperaSemNovosMinutos = iv; repo.SalvarPref("intervaloMinutos", iv.ToString(CultureInfo.InvariantCulture)); }
             if (b.Automatica is { } au) { cfg.SincronizacaoAutomatica = au; repo.SalvarPref("automatica", au.ToString()); }
             if (b.Ambiente is { } am) { cfg.Ambiente = am; repo.SalvarPref("ambiente", am.ToString(CultureInfo.InvariantCulture)); }
+            if (!string.IsNullOrWhiteSpace(b.Cnpj))
+            {
+                var c = new string(b.Cnpj.Where(char.IsDigit).ToArray());
+                cfg.Cnpj = c; repo.SalvarPref("cnpj", c);
+            }
             sync.RecalcularProxima();
             return Results.Ok(Cfg());
         });

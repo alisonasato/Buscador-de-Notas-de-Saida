@@ -61,9 +61,35 @@ public class Configuracao
     {
         caminho ??= Environment.GetEnvironmentVariable("BUSCADOR_CONFIG");
         if (!string.IsNullOrWhiteSpace(caminho)) return Path.GetFullPath(caminho);
-        foreach (var c in new[] { Path.Combine(Directory.GetCurrentDirectory(), "appsettings.json"), Path.Combine(AppContext.BaseDirectory, "appsettings.json") })
+        foreach (var c in new[] { Path.Combine(Directory.GetCurrentDirectory(), "appsettings.json"), Path.Combine(PastaDoExecutavel(), "appsettings.json") })
             if (File.Exists(c)) return c;
-        return Path.GetFullPath("appsettings.json");
+        // Ainda não existe: o executável publicado guarda tudo ao lado dele; em desenvolvimento (dotnet run), no diretório atual.
+        return Path.Combine(ExecutavelPublicado() ? PastaDoExecutavel() : Directory.GetCurrentDirectory(), "appsettings.json");
+    }
+
+    private static bool ExecutavelPublicado() =>
+        !string.Equals(Path.GetFileNameWithoutExtension(Environment.ProcessPath), "dotnet", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Pasta do .exe (arquivo único) ou da DLL (dotnet run).</summary>
+    public static string PastaDoExecutavel() =>
+        ExecutavelPublicado() && Environment.ProcessPath is { } p ? Path.GetDirectoryName(p)! : AppContext.BaseDirectory;
+
+    /// <summary>Cria um arquivo de configuração inicial (sem CNPJ: informe pela tela de Configurações).</summary>
+    public static void CriarPadrao(string caminho)
+    {
+        var padrao = new
+        {
+            Cnpj = "",
+            CertificadoPfx = "",
+            Ambiente = 1,
+            PastaXml = "xmls",
+            BancoSqlite = "notas.db",
+            PastaEntrada = "entrada",
+            PastaBackup = "",
+            SincronizacaoAutomatica = false,
+        };
+        Directory.CreateDirectory(Path.GetDirectoryName(caminho)!);
+        File.WriteAllText(caminho, JsonSerializer.Serialize(padrao, new JsonSerializerOptions { WriteIndented = true }));
     }
 
     public static Configuracao Carregar(string? caminho = null)
@@ -92,6 +118,7 @@ public class Configuracao
     /// <summary>Aplica as escolhas feitas na interface (guardadas no banco) por cima do arquivo de configuração.</summary>
     public void AplicarPreferencias(Repositorio repo)
     {
+        if (repo.ObterPref("cnpj") is { } c && Documento.CnpjValido(c)) Cnpj = new string(c.Where(char.IsDigit).ToArray());
         if (int.TryParse(repo.ObterPref("intervaloMinutos"), out var i) && i >= 0) EsperaSemNovosMinutos = i;
         if (bool.TryParse(repo.ObterPref("automatica"), out var a)) SincronizacaoAutomatica = a;
         if (int.TryParse(repo.ObterPref("ambiente"), out var amb) && amb is 1 or 2) Ambiente = amb;

@@ -214,7 +214,11 @@
             </div>
           </div>
           <label class="mt-4 flex items-center gap-2 text-sm"><input id="cfg-auto" type="checkbox" class="h-4 w-4 rounded" />Sincronização automática ativa</label>
-          <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">CNPJ consultado: <span id="cfg-cnpj" class="font-mono">—</span> (definido no appsettings.json)</p>
+          <div class="mt-4 max-w-xs">
+            <label class="label" for="cfg-cnpj">CNPJ da empresa (emitente das notas de saída)</label>
+            <input id="cfg-cnpj" class="field font-mono" inputmode="numeric" placeholder="00.000.000/0000-00" autocomplete="off" />
+            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Só notas emitidas por este CNPJ são importadas. Sem CNPJ, todas são aceitas.</p>
+          </div>
           <div class="mt-4"><button class="btn-primary" id="btn-salvar-cfg">Salvar</button></div>
         </section>
 
@@ -677,14 +681,14 @@ async function carregarConfig() {
     const sel = $("#cfg-intervalo");
     if (![...sel.options].some(o => +o.value === c.intervaloMinutos)) sel.add(new Option(`${c.intervaloMinutos} minutos`, c.intervaloMinutos));
     sel.value = c.intervaloMinutos; $("#cfg-auto").checked = c.automatica; $("#cfg-ambiente").value = c.ambiente;
-    $("#cfg-cnpj").textContent = c.cnpj ? docFmt(c.cnpj) : "não configurado";
+    $("#cfg-cnpj").value = c.cnpj ? docFmt(c.cnpj) : "";
   } catch (e) { toast(e.message, "erro"); }
   carregarCertificado();
   carregarEntrada();
 }
 $("#btn-salvar-cfg").onclick = async () => {
   try {
-    await apiJson("/api/config", { method: "PUT", json: { intervaloMinutos: +$("#cfg-intervalo").value, automatica: $("#cfg-auto").checked, ambiente: +$("#cfg-ambiente").value } });
+    await apiJson("/api/config", { method: "PUT", json: { intervaloMinutos: +$("#cfg-intervalo").value, automatica: $("#cfg-auto").checked, ambiente: +$("#cfg-ambiente").value, cnpj: $("#cfg-cnpj").value.replace(/\D/g, "") || null } });
     toast("Configurações salvas"); atualizarStatus();
   } catch (e) { toast(e.message, "erro"); }
 };

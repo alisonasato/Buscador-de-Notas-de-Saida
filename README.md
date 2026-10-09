@@ -22,6 +22,15 @@ dotnet run --project src/BuscadorNotas -- buscar --de 2024-10-01 --ate 2024-10-3
 dotnet test
 ```
 
+## Executável único (Windows)
+
+Um só arquivo, `BuscadorNotas.exe` (~50 MB): não exige instalar o .NET, traz a interface e o SQLite dentro dele.
+
+- **Baixar pronto:** a cada envio ao GitHub, a aba **Actions** monta o `.exe` (e roda os testes no Windows). Abra a execução mais recente e baixe **BuscadorNotas-win-x64** em *Artifacts*.
+- **Gerar você mesmo** (precisa do SDK .NET 8): `.\deploy\publicar-exe.ps1` e pegue `dist\BuscadorNotas.exe`.
+
+**Uso:** coloque o `.exe` numa pasta própria (ex.: `C:\BuscadorNotas`) e dê **duplo clique**. Na primeira vez ele cria, ao lado dele, o `appsettings.json`, o banco `notas.db`, a pasta `entrada` e a pasta `xmls`, e abre o navegador em `http://127.0.0.1:5080`. Informe o **CNPJ** em *Configurações*. Para importar sem certificado, solte XMLs/ZIPs/SPED na pasta `entrada`. Para encerrar, feche a janela preta. O Windows pode avisar "aplicativo não reconhecido" (o arquivo não é assinado digitalmente): *Mais informações > Executar assim mesmo*.
+
 ## Interface web e API
 
 ```bash

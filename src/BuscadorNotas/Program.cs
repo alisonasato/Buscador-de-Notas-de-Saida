@@ -6,11 +6,12 @@ const string Ajuda = """
     Buscador de Notas de Saída
 
     Uso: BuscadorNotas <comando> [opções]
+    Sem comando (duplo clique): equivale a "serve --abrir".
 
     Comandos:
       backup [--destino pasta] [--manter N]
                                   Backup do banco (consistente, online) + cópia incremental dos XMLs. Padrão: PastaBackup, 14 backups.
-      serve [--log-arquivo] [--url http://127.0.0.1:5080]
+      serve [--abrir] [--log-arquivo] [--url http://127.0.0.1:5080]
                                   Sobe a interface web e a API HTTP (/api). Veja ApiUrl/ApiToken em appsettings.json.
       sync [--loop]               Robô de NSU (nfeDistDFeInteresse). Com --loop roda continuamente.
       sync --desde-nsu N          Volta o NSU salvo para N e sincroniza (reprocessa histórico; operação idempotente).
@@ -34,11 +35,15 @@ const string Ajuda = """
     Configuração: appsettings.json (ou --config / variável BUSCADOR_CONFIG). Senha do .pfx em NFE_PFX_SENHA.
     """;
 
-if (args.Length == 0 || args[0] is "-h" or "--help" or "help")
+if (args.Length > 0 && args[0] is "-h" or "--help" or "help")
 {
     Console.WriteLine(Ajuda);
     return 0;
 }
+
+// Sem argumentos (duplo clique no .exe): sobe a interface e abre o navegador.
+var duploClique = args.Length == 0;
+if (duploClique) args = new[] { "serve", "--abrir" };
 
 using var cts = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
@@ -50,6 +55,12 @@ for (var i = 0; i < args.Length - 1; i++)
 
 try
 {
+    var caminhoConfig = Configuracao.LocalizarArquivo(arquivoConfig);
+    if (!File.Exists(caminhoConfig) && args[0] == "serve")
+    {
+        Configuracao.CriarPadrao(caminhoConfig);
+        Console.WriteLine($"Primeira execução: criei {caminhoConfig}. Informe o CNPJ em Configurações.");
+    }
     var cfg = Configuracao.Carregar(arquivoConfig);
     var repo = new Repositorio(cfg.BancoSqlite);
     cfg.AplicarPreferencias(repo);
@@ -70,7 +81,7 @@ try
         case "serve":
             if (WindowsServiceHelpers.IsWindowsService() || resto.Contains("--log-arquivo"))
                 LogDiario.Iniciar(Path.Combine(cfg.PastaConfig, "logs"));
-            await ApiServer.ServirAsync(cfg, repo, robo, Opcao(resto, "--url") ?? cfg.ApiUrl, cts.Token);
+            await ApiServer.ServirAsync(cfg, repo, robo, Opcao(resto, "--url") ?? cfg.ApiUrl, cts.Token, resto.Contains("--abrir"));
             break;
 
         case "sync":
@@ -135,6 +146,11 @@ catch (OperationCanceledException)
 catch (Exception ex)
 {
     Console.Error.WriteLine($"Erro: {ex.Message}");
+    if (duploClique && !Console.IsInputRedirected)
+    {
+        Console.WriteLine("Pressione qualquer tecla para fechar...");
+        Console.ReadKey(true);
+    }
     return 1;
 }
 

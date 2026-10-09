@@ -421,4 +421,32 @@ public class ApiTestes
         Assert.Equal("CANCELADA", Situacao.Classificar(f.Repo.ObterNota(nota.ChaveAcesso)!.SituacaoSefaz));
         Assert.Equal(1, f.Repo.ContarEventos(nota.ChaveAcesso));
     }
+
+    [Fact]
+    public async Task Interface_embutida_e_servida_sem_pasta_wwwroot()
+    {
+        await using var f = await Semeada();
+        var raiz = await f.Http.GetAsync("/");
+        Assert.Equal(HttpStatusCode.OK, raiz.StatusCode);
+        Assert.Contains("<title>Notas de Saída</title>", await raiz.Content.ReadAsStringAsync());
+        var css = await f.Http.GetAsync("/app.css");
+        Assert.Equal(HttpStatusCode.OK, css.StatusCode);
+        Assert.Equal("text/css", css.Content.Headers.ContentType?.MediaType);
+    }
+
+    [Fact]
+    public async Task Cnpj_pela_interface_valida_persiste_e_vale_na_proxima_execucao()
+    {
+        await using var f = await Semeada();
+        Assert.Equal(HttpStatusCode.BadRequest, (await f.Http.PutAsJsonAsync("/api/config", new { cnpj = "11222333000182" })).StatusCode);
+
+        var ok = await f.Http.PutAsJsonAsync("/api/config", new { cnpj = "99.888.777/0001-00" });
+        Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
+        Assert.Equal("99888777000100", f.Cfg.Cnpj);
+        Assert.Equal("99888777000100", (await f.Http.GetFromJsonAsync<JsonElement>("/api/config")).GetProperty("cnpj").GetString());
+
+        var nova = new Configuracao { Cnpj = "" };
+        nova.AplicarPreferencias(f.Repo);
+        Assert.Equal("99888777000100", nova.Cnpj);
+    }
 }

@@ -73,3 +73,23 @@ public class Armazenamento
         return completo.StartsWith(raiz, cmp) && File.Exists(completo) ? completo : null;
     }
 }
+
+public static class Documento
+{
+    /// <summary>CNPJ numérico de 14 dígitos com dígitos verificadores corretos (aceita pontuação).</summary>
+    public static bool CnpjValido(string? cnpj)
+    {
+        var d = new string((cnpj ?? "").Where(char.IsDigit).ToArray());
+        if (d.Length != 14 || d.Distinct().Count() == 1) return false;
+        static int Digito(string baseNum, int[] pesos)
+        {
+            int soma = 0;
+            for (int i = 0; i < pesos.Length; i++) soma += (baseNum[i] - '0') * pesos[i];
+            var r = soma % 11;
+            return r < 2 ? 0 : 11 - r;
+        }
+        var d1 = Digito(d, new[] { 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2 });
+        var d2 = Digito(d, new[] { 6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2 });
+        return d[12] - '0' == d1 && d[13] - '0' == d2;
+    }
+}
