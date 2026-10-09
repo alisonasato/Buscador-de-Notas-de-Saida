@@ -1,0 +1,29 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer components {
+  .btn { @apply inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors
+         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2
+         focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900 disabled:cursor-not-allowed disabled:opacity-50; }
+  .btn-primary { @apply btn bg-blue-600 text-white hover:bg-blue-700; }
+  .btn-ghost { @apply btn border border-slate-300 bg-white text-slate-700 hover:bg-slate-50
+                 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700; }
+  .icon-btn { @apply inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-900
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-40
+                dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100; }
+  .card { @apply rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900; }
+  .field { @apply w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400
+                  focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30
+                  dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100; }
+  .label { @apply mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400; }
+  .chip { @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium; }
+  .th { @apply px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400; }
+  .td { @apply px-3 py-3 align-middle; }
+  .skeleton { @apply animate-pulse rounded bg-slate-200 dark:bg-slate-700; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse, .animate-spin { animation: none !important; }
+  * { transition-duration: 0.01ms !important; }
+}
