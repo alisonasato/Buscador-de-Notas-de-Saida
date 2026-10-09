@@ -97,6 +97,12 @@ BuscadorNotas.exe testar-certificado --modo temporaria
 ```
 O comando carrega o certificado 3 vezes, mostra se sobraram arquivos de chave e testa o handshake TLS (GET no `?wsdl` do serviço, que não é uma consulta de distribuição). Se o modo `temporaria` mostrar "O certificado foi aceito no handshake" e sem acúmulo, defina `"ModoChaveCertificado": "temporaria"` no `appsettings.json`. Se der falha de conexão nesse modo, mantenha `maquina`.
 
+## Busca de NFS-e no portal nacional (EXPERIMENTAL, desligada por padrão)
+
+Opção *Também buscar NFS-e no portal nacional* (Configurações) ou `DistribuirNfse` no `appsettings.json`. Lê a distribuição do ADN por NSU com o mesmo certificado, importando como as demais fontes (prestador = você → saída; tomador = você → entrada). NSU próprio (`CNPJ:NFSE`), no máximo uma consulta a cada `IntervaloMinimoMinutos` e parada em HTTP 429.
+
+**O que NÃO está confirmado:** não consegui abrir o manual oficial (o domínio gov.br está bloqueado no ambiente em que o programa foi escrito). Só sei, por resultado de busca, que existe um `GET /DFe/{NSU}` nas APIs do ADN. A URL padrão (`UrlDistribuicaoNfse`), o nome dos campos do JSON (`StatusProcessamento`, `LoteDFe`, `NSU`, `TipoDocumento`, `ArquivoXml`, `Erros`), o formato do XML (base64+GZip) e se o parâmetro é o NSU inicial vieram de memória e de relatos em fóruns, que divergem entre si. Confira no manual/Swagger do ADN e ajuste `UrlDistribuicaoNfse` (use `{nsu}` onde vai o número). Eventos (cancelamento) de NFS-e nacional **não** são tratados. Em caso de erro, a busca de NF-e continua e o aviso aparece no histórico.
+
 ## Pasta de entrada
 
 Defina `PastaEntrada` no `appsettings.json` e rode `serve`: XMLs, ZIPs de XMLs, SPED (.txt) e listas de chaves (.csv) colocados lá são importados automaticamente (sem certificado), e movidos para `processados` ou `rejeitados`. Detalhes em [docs/instalacao-windows.md](docs/instalacao-windows.md#pasta-de-entrada-importação-automática).

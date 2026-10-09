@@ -535,4 +535,81 @@ public class DistribuicaoExtraTestes
         }
         finally { try { Directory.Delete(dir, true); } catch (IOException) { } }
     }
+
+    // ---------------- NFS-e do portal nacional (experimental) ----------------
+
+    private static string NfseXml(string prestador, string tomador, int n) =>
+        $"""<CompNfse><Nfse><InfNfse><Numero>{n}</Numero><DataEmissao>2026-10-05T10:00:00</DataEmissao><CodigoMunicipio>3550308</CodigoMunicipio><PrestadorServico><IdentificacaoPrestador><Cnpj>{prestador}</Cnpj></IdentificacaoPrestador><RazaoSocial>Prestador</RazaoSocial></PrestadorServico><TomadorServico><IdentificacaoTomador><CpfCnpj><Cnpj>{tomador}</Cnpj></CpfCnpj></IdentificacaoTomador><RazaoSocial>Tomador</RazaoSocial></TomadorServico><Servico><Valores><ValorServicos>100.00</ValorServicos></Valores></Servico></InfNfse></Nfse></CompNfse>""";
+
+    private static string GzB64(string xml)
+    {
+        using var ms = new MemoryStream();
+        using (var gz = new System.IO.Compression.GZipStream(ms, System.IO.Compression.CompressionMode.Compress, true)) gz.Write(System.Text.Encoding.UTF8.GetBytes(xml));
+        return Convert.ToBase64String(ms.ToArray());
+    }
+
+    [Fact]
+    public async Task Nfse_nacional_importa_saida_e_entrada_avanca_o_nsu_e_respeita_o_intervalo()
+    {
+        var (f, sefaz, robo) = await Montar(cte: false, mdfe: false);
+        await using var _f = f; await using var _s = sefaz;
+        var urls = new List<string>();
+        var b = WebApplication.CreateBuilder();
+        b.Logging.SetMinimumLevel(LogLevel.Warning);
+        b.WebHost.UseUrls("http://127.0.0.1:0");
+        await using var app = b.Build();
+        app.MapGet("/dfe/{nsu}", (string nsu) =>
+        {
+            urls.Add(nsu);
+            if (nsu == "1")
+                return Results.Json(new
+                {
+                    StatusProcessamento = "DOCUMENTOS_LOCALIZADOS",
+                    LoteDFe = new object[]
+                    {
+                        new { NSU = 1, TipoDocumento = "NFSE", ArquivoXml = GzB64(NfseXml(Eu, Outro, 10)) },
+                        new { NSU = 2, TipoDocumento = "NFSE", ArquivoXml = GzB64(NfseXml(Outro, Eu, 11)) },
+                    },
+                });
+            return Results.Json(new { StatusProcessamento = "NENHUM_DOCUMENTO_LOCALIZADO" }, statusCode: 404);
+        });
+        await app.StartAsync();
+        f.Cfg.UrlDistribuicaoNfse = app.Urls.First() + "/dfe/{nsu}";
+
+        var (novas, msg) = await robo.ConsultarNfseAsync(new HttpClient(), default);
+
+        Assert.Equal(1, novas);                                               // só a prestada por mim conta como saída nova
+        Assert.Contains("1 entrada", msg);
+        Assert.Equal(new[] { "1", "3" }, urls);                              // pede o NSU seguinte ao último recebido
+        Assert.Equal("000000000000002", f.Repo.ObterUltimoNsu($"{Eu}:NFSE"));
+        Assert.Equal(1, f.Repo.Contar(new FiltroBusca { Tipo = TipoDoc.Nfse, Direcao = Direcao.Saida }));
+        Assert.Equal(1, f.Repo.Contar(new FiltroBusca { Tipo = TipoDoc.Nfse, Direcao = Direcao.Entrada }));
+
+        var (n2, msg2) = await robo.ConsultarNfseAsync(new HttpClient(), default);
+        Assert.Equal(0, n2); Assert.Contains("liberada", msg2);               // intervalo mínimo
+        Assert.Equal(2, urls.Count);                                          // sem novo pedido
+    }
+
+    [Fact]
+    public void Nfse_nacional_interpreta_resposta_com_erro_e_url_sem_marcador()
+    {
+        var r = NfseNacional.Interpretar(400, "{\"Erros\":[{\"Codigo\":\"E123\",\"Descricao\":\"algo\"}]}");
+        Assert.Empty(r.Documentos);
+        Assert.Contains("E123 algo", r.Erros[0]);
+        Assert.Equal("https://x/DFe/15", NfseNacional.MontarUrl("https://x/DFe", "000000000000015"));
+        Assert.Equal("https://x/DFe/0?a=1", NfseNacional.MontarUrl("https://x/DFe/{NSU}?a=1", "000"));
+        Assert.Throws<InvalidDataException>(() => NfseNacional.Interpretar(200, "<html>"));
+    }
+
+    [Fact]
+    public async Task Nfse_com_erro_do_portal_vira_aviso_e_nao_derruba_a_nfe()
+    {
+        var (f, sefaz, robo) = await Montar(cte: false, mdfe: false);
+        await using var _f = f; await using var _s = sefaz;
+        f.Cfg.DistribuirNfse = true;
+        f.Cfg.UrlDistribuicaoNfse = sefaz.Base + "/inexistente/{nsu}";        // 404 sem corpo útil e sem JSON
+        sefaz.Respostas["nfe"] = SefazFalsa.Resposta("137", "nada");
+        var r = await robo.ExecutarCicloComAsync(new HttpClient(), null, default);
+        Assert.Equal("137", r.CStat);
+    }
 }

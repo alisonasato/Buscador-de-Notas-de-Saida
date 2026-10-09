@@ -189,6 +189,21 @@ public partial class Robo
                 avisos.Add($"{svc.Rotulo}: {ex.Message}");
             }
         }
+        if (_cfg.DistribuirNfse)
+        {
+            try
+            {
+                var (n, msg) = await ConsultarNfseAsync(http, ct);
+                novas += n;
+                if (msg.Length > 0) avisos.Add(msg);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"  NFS-e (experimental): {ex.Message}");
+                avisos.Add($"NFS-e: {ex.Message}");
+            }
+        }
         return avisos.Count == 0 && novas == r.NovasNotas ? r
             : r with { NovasNotas = novas, Mensagem = string.Join(" | ", new[] { r.Mensagem }.Concat(avisos).Where(x => !string.IsNullOrEmpty(x))) };
     }

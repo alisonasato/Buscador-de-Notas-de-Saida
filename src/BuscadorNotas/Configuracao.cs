@@ -42,6 +42,13 @@ public class Configuracao
     public bool DistribuirMdfe { get; set; }
     public string UrlDistribuicaoMdfe { get; set; } = "";
 
+    /// <summary>
+    /// EXPERIMENTAL: também busca NFS-e no portal nacional (ADN). Desligado por padrão. A URL abaixo vem de relato em fórum
+    /// (não do manual oficial, que não consegui acessar): confirme no Swagger/manual do ADN. {nsu} = NSU inicial da consulta.
+    /// </summary>
+    public bool DistribuirNfse { get; set; }
+    public string UrlDistribuicaoNfse { get; set; } = "https://adn.nfse.gov.br/contribuintes/DFe/{nsu}";
+
     /// <summary>URL do NFeConsultaProtocolo4 por código de UF (2 dígitos). Sem valor padrão: preencher conforme o Portal da NF-e.</summary>
     public Dictionary<string, string> UrlsConsultaProtocolo { get; set; } = new();
 
@@ -165,6 +172,7 @@ public class Configuracao
         if (repo.ObterPref("cufAutor") is { } uf && (uf == "" || UfValida(uf))) CUFAutor = uf;
         if (bool.TryParse(repo.ObterPref("guardarEntradas"), out var ge)) GuardarEntradas = ge;
         if (bool.TryParse(repo.ObterPref("distribuirCte"), out var dc)) DistribuirCte = dc;
+        if (bool.TryParse(repo.ObterPref("distribuirNfse"), out var dn)) DistribuirNfse = dn;
         if (bool.TryParse(repo.ObterPref("distribuirMdfe"), out var dm)) DistribuirMdfe = dm;
         if (repo.ObterPref("cnpj") is { } c && Documento.CnpjValido(c)) Cnpj = new string(c.Where(char.IsDigit).ToArray());
         if (int.TryParse(repo.ObterPref("intervaloMinutos"), out var i) && i >= 0) EsperaSemNovosMinutos = i;
