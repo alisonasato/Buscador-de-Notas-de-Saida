@@ -28,4 +28,5 @@ Este código **não foi compilado nem executado** no ambiente em que foi escrito
 - **Envelope SOAP:** a versão (1.1 × 1.2), o `cUFAutor` (guia usa `91`), o elemento-operação no corpo e as URLs devem ser conferidos no WSDL/Manual de Orientação do Contribuinte. Há `Soap12` e `UrlDistribuicao` em configuração; `UrlsConsultaProtocolo` (por UF) vem sem valor propositalmente.
 - **Layout do SPED:** posições do `C100` usadas em `SpedParser.cs` (IND_OPER=2, COD_SIT=6, SER=7, NUM_DOC=8, CHV_NFE=9, DT_DOC=10, VL_DOC=12) conferir com o Guia Prático da EFD da sua versão.
 - Códigos de retorno tratados: 138 (docs), 137 (nenhum), 656 (consumo indevido → espera ~65 min). Demais lançam erro.
+- **Diagnóstico:** `sync --diagnostico` mostra se a distribuição devolve notas em que seu CNPJ é emitente (não grava nada nem altera o NSU salvo). Rode antes de depender do `sync` para saídas.
 - Eventos (cancelamento, CC-e) ainda não são processados.

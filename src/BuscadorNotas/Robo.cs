@@ -17,6 +17,14 @@ public class Robo
 
     // ---------- Robô de NSU ----------
 
+    public async Task DiagnosticarAsync(int maxPaginas, string nsuInicial, CancellationToken ct)
+    {
+        _cfg.ValidarParaSefaz();
+        using var cert = CertificadoService.ObterCertificado(_cfg.CertificadoPfx, _cfg.SenhaCertificado);
+        using var http = SefazHttp.CriarClient(cert);
+        await Diagnostico.ExecutarAsync(_cfg, new SefazDistribuicao(http, _cfg), maxPaginas, nsuInicial, ct);
+    }
+
     /// <summary>Roda o robô de NSU. Com <paramref name="repetir"/>, fica em loop respeitando o throttling.</summary>
     public async Task SincronizarAsync(bool repetir, CancellationToken ct)
     {

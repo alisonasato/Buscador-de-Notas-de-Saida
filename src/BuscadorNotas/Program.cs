@@ -8,6 +8,8 @@ const string Ajuda = """
 
     Comandos:
       sync [--loop]               Robô de NSU (nfeDistDFeInteresse). Com --loop roda continuamente.
+      sync --diagnostico [--max-paginas N] [--nsu-inicial N]
+                                  Teste: lista em que papel (emitente/destinatário) seu CNPJ aparece, sem gravar nada.
       importar-sped <arq...>      Lê registros C100 de saída de arquivos SPED Fiscal e cria pendências.
       baixar-pendentes [--max N]  Consulta por chave (nfeConsultaProtocolo) as notas PENDENTES.
       buscar [filtros]            Pesquisa no banco local.
@@ -39,7 +41,12 @@ try
     switch (args[0])
     {
         case "sync":
-            await robo.SincronizarAsync(resto.Contains("--loop"), cts.Token);
+            if (resto.Contains("--diagnostico"))
+                await robo.DiagnosticarAsync(
+                    int.Parse(Opcao(resto, "--max-paginas") ?? "20", CultureInfo.InvariantCulture),
+                    (Opcao(resto, "--nsu-inicial") ?? "0").PadLeft(15, '0'), cts.Token);
+            else
+                await robo.SincronizarAsync(resto.Contains("--loop"), cts.Token);
             break;
 
         case "importar-sped":
