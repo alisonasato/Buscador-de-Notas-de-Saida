@@ -86,6 +86,17 @@ A distribuição DF-e entrega o que o seu CNPJ **recebeu** (entradas). Em vez de
 
 `BuscadorNotas.exe buscar-chaves [--max N] [--forcar]` (ou o cartão *Chaves pendentes* em Configurações) pede à distribuição DF-e o XML (`consChNFe`) das chaves sem XML (ex.: vindas do SPED). Limites: no máximo 20 por vez, intervalo mínimo de `IntervaloMinimoMinutos` entre buscas, para ao receber 656 e compartilha o bloqueio com a sincronização. **O layout do pedido foi escrito de memória e nunca foi testado na Sefaz real; não tenho fonte verificada de que ela devolva notas de que o seu CNPJ não faz parte** (pelo que sei, não devolve). Chaves sem retorno ficam *Indisponíveis*: para elas, use os XMLs do emissor/contador.
 
+## Chave do certificado no Windows (`testar-certificado`)
+
+Por padrão o certificado é carregado no modo `maquina` (`MachineKeySet | PersistKeySet`), que é o que já funcionou nas consultas reais. **Não tenho confirmação**, mas no Windows esse modo pode deixar arquivos de chave em `C:\ProgramData\Microsoft\Crypto\RSA\MachineKeys` a cada consulta. Para conferir na sua máquina:
+
+```
+set NFE_PFX_SENHA=sua_senha
+BuscadorNotas.exe testar-certificado --modo maquina
+BuscadorNotas.exe testar-certificado --modo temporaria
+```
+O comando carrega o certificado 3 vezes, mostra se sobraram arquivos de chave e testa o handshake TLS (GET no `?wsdl` do serviço, que não é uma consulta de distribuição). Se o modo `temporaria` mostrar "O certificado foi aceito no handshake" e sem acúmulo, defina `"ModoChaveCertificado": "temporaria"` no `appsettings.json`. Se der falha de conexão nesse modo, mantenha `maquina`.
+
 ## Pasta de entrada
 
 Defina `PastaEntrada` no `appsettings.json` e rode `serve`: XMLs, ZIPs de XMLs, SPED (.txt) e listas de chaves (.csv) colocados lá são importados automaticamente (sem certificado), e movidos para `processados` ou `rejeitados`. Detalhes em [docs/instalacao-windows.md](docs/instalacao-windows.md#pasta-de-entrada-importação-automática).

@@ -27,6 +27,9 @@ public class Configuracao
     };
 
     public static bool UfValida(string? codigo) => codigo != null && Ufs.ContainsKey(codigo);
+    /// <summary>Como a chave do certificado é carregada: "maquina" (padrão) ou "temporaria". Ver <c>testar-certificado</c>.</summary>
+    public string ModoChaveCertificado { get; set; } = CertificadoService.ModoMaquina;
+
     public bool Soap12 { get; set; } = true;
     public string UrlDistribuicao { get; set; } =
         "https://www1.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx";
@@ -142,6 +145,9 @@ public class Configuracao
                   ?? throw new InvalidDataException("Configuração inválida.");
 
         cfg.Cnpj = new string(cfg.Cnpj.Where(char.IsDigit).ToArray());
+        cfg.ModoChaveCertificado = (cfg.ModoChaveCertificado ?? "").Trim().ToLowerInvariant();
+        if (!CertificadoService.ModoValido(cfg.ModoChaveCertificado))
+            throw new InvalidDataException("ModoChaveCertificado deve ser \"maquina\" ou \"temporaria\".");
         cfg.PastaConfig = Path.GetDirectoryName(caminho) ?? ".";
         // Caminhos relativos valem a partir da pasta do arquivo (um serviço do Windows roda em System32).
         string Resolver(string p) => string.IsNullOrWhiteSpace(p) ? p : Path.GetFullPath(p, cfg.PastaConfig);

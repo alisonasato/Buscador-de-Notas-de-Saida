@@ -493,4 +493,46 @@ public class DistribuicaoExtraTestes
         Assert.Equal(Direcao.Saida, f.Repo.ObterNota(chaveSped)!.Direcao);   // virou pendência (SPED), não lista de chaves genérica
         Assert.Equal("SPED", f.Repo.ObterNota(chaveSped)!.Origem);
     }
+
+    [Theory]
+    [InlineData("maquina")]
+    [InlineData("temporaria")]
+    public void Certificado_carrega_nos_dois_modos_e_modo_invalido_e_recusado(string modo)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"cert-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            using var rsa = System.Security.Cryptography.RSA.Create(2048);
+            var req = new System.Security.Cryptography.X509Certificates.CertificateRequest("CN=TESTE:11222333000181", rsa,
+                System.Security.Cryptography.HashAlgorithmName.SHA256, System.Security.Cryptography.RSASignaturePadding.Pkcs1);
+            using var auto = req.CreateSelfSigned(DateTimeOffset.Now.AddDays(-1), DateTimeOffset.Now.AddDays(30));
+            var pfx = Path.Combine(dir, "t.pfx");
+            File.WriteAllBytes(pfx, auto.Export(System.Security.Cryptography.X509Certificates.X509ContentType.Pfx, "senha"));
+
+            using var c = CertificadoService.ObterCertificado(pfx, "senha", modo);
+            Assert.True(c.HasPrivateKey);
+            Assert.True(CertificadoService.ModoValido(modo));
+            Assert.False(CertificadoService.ModoValido("qualquer"));
+        }
+        finally { try { Directory.Delete(dir, true); } catch (IOException) { } }
+    }
+
+    [Fact]
+    public void Configuracao_recusa_modo_de_certificado_invalido()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"cfg-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var arq = Path.Combine(dir, "appsettings.json");
+            File.WriteAllText(arq, "{\"Cnpj\":\"11222333000181\",\"ModoChaveCertificado\":\"xyz\"}");
+            Assert.Throws<InvalidDataException>(() => Configuracao.Carregar(arq));
+            File.WriteAllText(arq, "{\"Cnpj\":\"11222333000181\",\"ModoChaveCertificado\":\"Temporaria\"}");
+            Assert.Equal("temporaria", Configuracao.Carregar(arq).ModoChaveCertificado);
+            File.WriteAllText(arq, "{\"Cnpj\":\"11222333000181\"}");
+            Assert.Equal("maquina", Configuracao.Carregar(arq).ModoChaveCertificado);   // padrão = o que já funcionava
+        }
+        finally { try { Directory.Delete(dir, true); } catch (IOException) { } }
+    }
 }

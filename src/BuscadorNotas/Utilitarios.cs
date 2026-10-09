@@ -6,8 +6,19 @@ namespace BuscadorNotas;
 
 public static class CertificadoService
 {
-    public static X509Certificate2 ObterCertificado(string caminhoPfx, string senha) =>
-        new(caminhoPfx, senha, X509KeyStorageFlags.MachineKeySet | X509KeyStorageFlags.PersistKeySet);
+    public const string ModoMaquina = "maquina", ModoTemporaria = "temporaria";
+
+    public static bool ModoValido(string? modo) => modo is ModoMaquina or ModoTemporaria;
+
+    /// <summary>
+    /// "maquina" (padrão, o que já funcionou nas consultas reais): MachineKeySet | PersistKeySet — no Windows a chave fica
+    /// gravada no repositório da máquina e pode acumular arquivos a cada carga. "temporaria": chave do usuário atual,
+    /// apagada quando o certificado é descartado (ainda não comprovada neste programa; teste com <c>testar-certificado</c>).
+    /// </summary>
+    public static X509Certificate2 ObterCertificado(string caminhoPfx, string senha, string? modo = null) =>
+        new(caminhoPfx, senha, modo == ModoTemporaria
+            ? X509KeyStorageFlags.DefaultKeySet
+            : X509KeyStorageFlags.MachineKeySet | X509KeyStorageFlags.PersistKeySet);
 }
 
 public static class DescompactadorXml

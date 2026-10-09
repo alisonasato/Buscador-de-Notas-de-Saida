@@ -64,7 +64,7 @@ public partial class Robo
         _cfg.ValidarParaSefaz();
         using var trava = AdquirirTravaConsulta();
         ResolverUf();
-        using var cert = CertificadoService.ObterCertificado(_cfg.CertificadoPfx, _cfg.SenhaCertificado);
+        using var cert = CertificadoService.ObterCertificado(_cfg.CertificadoPfx, _cfg.SenhaCertificado, _cfg.ModoChaveCertificado);
         using var http = SefazHttp.CriarClient(cert);
         await Diagnostico.ExecutarAsync(_cfg, new SefazDistribuicao(http, _cfg, ServicosDistribuicao.Por(servico, _cfg)), maxPaginas, nsuInicial, ct,
             aoEsgotar: servico is null or "" or "nfe" or "NFE" ? RegistrarFimDeConsulta : null);
@@ -106,7 +106,7 @@ public partial class Robo
         _cfg.ValidarParaSefaz();
         using var trava = AdquirirTravaConsulta();
         ResolverUf();
-        using var cert = CertificadoService.ObterCertificado(_cfg.CertificadoPfx, _cfg.SenhaCertificado);
+        using var cert = CertificadoService.ObterCertificado(_cfg.CertificadoPfx, _cfg.SenhaCertificado, _cfg.ModoChaveCertificado);
         using var http = SefazHttp.CriarClient(cert);
         return await ExecutarCicloComAsync(http, progresso, ct);
     }
@@ -385,7 +385,7 @@ public partial class Robo
     {
         _cfg.ValidarParaSefaz();
         using var trava = AdquirirTravaConsulta();
-        using var cert = CertificadoService.ObterCertificado(_cfg.CertificadoPfx, _cfg.SenhaCertificado);
+        using var cert = CertificadoService.ObterCertificado(_cfg.CertificadoPfx, _cfg.SenhaCertificado, _cfg.ModoChaveCertificado);
         using var http = SefazHttp.CriarClient(cert);
         return await BuscarPendentesPorChaveAsync(http, limite, forcar, ct);
     }
@@ -463,7 +463,7 @@ public partial class Robo
     public async Task BaixarPendentesAsync(int limite, CancellationToken ct)
     {
         _cfg.ValidarParaSefaz();
-        using var cert = CertificadoService.ObterCertificado(_cfg.CertificadoPfx, _cfg.SenhaCertificado);
+        using var cert = CertificadoService.ObterCertificado(_cfg.CertificadoPfx, _cfg.SenhaCertificado, _cfg.ModoChaveCertificado);
         using var http = SefazHttp.CriarClient(cert);
         var consulta = new SefazConsultaProtocolo(http, _cfg);
 

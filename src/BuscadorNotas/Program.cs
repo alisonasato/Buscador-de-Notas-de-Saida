@@ -27,6 +27,8 @@ const string Ajuda = """
       buscar-chaves [--max N] [--forcar]
                                   EXPERIMENTAL: pede à distribuição DF-e o XML das chaves pendentes (máx. 20 por vez,
                                   intervalo mínimo entre buscas; --forcar ignora o intervalo — risco de bloqueio 656).
+      testar-certificado [--modo maquina|temporaria]
+                                  Confere o carregamento do certificado (acúmulo de arquivos de chave no Windows e handshake TLS).
       buscar [filtros]            Pesquisa no banco local.
           --chave <44 dígitos>    --numero <n>        --serie <s>
           --de <aaaa-mm-dd>       --ate <aaaa-mm-dd>
@@ -137,6 +139,9 @@ try
         case "baixar-pendentes":
             await robo.BaixarPendentesAsync(int.Parse(Opcao(resto, "--max") ?? "50", CultureInfo.InvariantCulture), cts.Token);
             break;
+
+        case "testar-certificado":
+            return await TesteCertificado.ExecutarAsync(cfg, Opcao(resto, "--modo") ?? cfg.ModoChaveCertificado, cts.Token);
 
         case "buscar-chaves":
         {
