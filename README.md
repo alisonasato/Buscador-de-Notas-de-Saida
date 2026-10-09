@@ -74,6 +74,18 @@ O comando `serve` sobe a interface (`src/BuscadorNotas/wwwroot`) e a API (`/api`
 
 **Sincronização.** Uma execução por vez. A Sefaz respondendo 656 coloca o servidor em espera (`blocked`) por `EsperaConsumoIndevidoMinutos`, e isso sobrevive a reinício. A sincronização automática vem desligada; ligue na tela de configurações (intervalo mínimo de 60 min).
 
+## Notas de entrada (você é o destinatário)
+
+A distribuição DF-e entrega o que o seu CNPJ **recebeu** (entradas). Em vez de descartar, o programa agora guarda essas notas separadas das saídas (opção *Guardar também notas de entrada* em Configurações, ou `GuardarEntradas` no `appsettings.json`; ligada por padrão).
+- Cada documento tem uma **direção**: `SAIDA` (você é o emitente), `ENTRADA` (você é o destinatário/tomador) ou `OUTRA` (só com `--todos`/importação de outros CNPJs).
+- Lista, API e CSV mostram **só saídas** por padrão; use o filtro *Direção* (API: `direcao=ENTRADA|OUTRA|TODAS`). Painel e faturamento contam apenas saídas; as entradas têm um cartão próprio.
+- Eventos de cancelamento recebidos para entradas já guardadas também são aplicados.
+- **Quem já avançou o NSU** (a Sefaz já entregou e o programa descartou as entradas antigas) precisa reler o histórico: `BuscadorNotas.exe sync --desde-nsu 000000000000000` (centenas de consultas; respeita o intervalo mínimo e pode ser bloqueado com 656 se repetido).
+
+## Busca de chaves pendentes na Sefaz (EXPERIMENTAL)
+
+`BuscadorNotas.exe buscar-chaves [--max N] [--forcar]` (ou o cartão *Chaves pendentes* em Configurações) pede à distribuição DF-e o XML (`consChNFe`) das chaves sem XML (ex.: vindas do SPED). Limites: no máximo 20 por vez, intervalo mínimo de `IntervaloMinimoMinutos` entre buscas, para ao receber 656 e compartilha o bloqueio com a sincronização. **O layout do pedido foi escrito de memória e nunca foi testado na Sefaz real; não tenho fonte verificada de que ela devolva notas de que o seu CNPJ não faz parte** (pelo que sei, não devolve). Chaves sem retorno ficam *Indisponíveis*: para elas, use os XMLs do emissor/contador.
+
 ## Pasta de entrada
 
 Defina `PastaEntrada` no `appsettings.json` e rode `serve`: XMLs, ZIPs de XMLs, SPED (.txt) e listas de chaves (.csv) colocados lá são importados automaticamente (sem certificado), e movidos para `processados` ou `rejeitados`. Detalhes em [docs/instalacao-windows.md](docs/instalacao-windows.md#pasta-de-entrada-importação-automática).

@@ -5,7 +5,7 @@ namespace BuscadorNotas;
 /// <summary>O que a Sefaz entregou num ciclo, por papel do seu CNPJ (para explicar "0 notas novas").</summary>
 public class EstatisticaCiclo
 {
-    public int Recebidos, Saidas, ComoDestinatario, Resumos, Eventos, Outros;
+    public int Recebidos, Saidas, Entradas, ComoDestinatario, Resumos, Eventos, Outros;
 
     public string Texto()
     {
@@ -13,13 +13,16 @@ public class EstatisticaCiclo
         var partes = new List<string>();
         void Add(int n, string rotulo) { if (n > 0) partes.Add($"{n} {rotulo}"); }
         Add(Saidas, "emitido(s) por você (saída)");
-        Add(ComoDestinatario, "em que você é destinatário (entrada)");
+        Add(Entradas, "de entrada guardada(s) (você é destinatário)");
+        Add(ComoDestinatario, "em que você é destinatário (entrada, não guardada)");
         Add(Resumos, "resumo(s) de notas de terceiros");
         Add(Eventos, "evento(s)");
         Add(Outros, "outro(s)");
         return $"{Recebidos} documento(s) recebido(s): {string.Join(", ", partes)}";
     }
 }
+
+public record ResultadoBuscaChaves(int Consultadas, int Obtidas, int Indisponiveis, int Erros, string Mensagem);
 
 public record ProgressoSync(int Pagina, string UltNsu, string MaxNsu, int NovasNotas);
 
@@ -228,10 +231,15 @@ public partial class Robo
             {
                 var nota = NfeXml.LerNotaCompleta(doc, "NSU");
                 if (nota == null) { if (est != null) est.Outros++; return false; }
-                if (nota.CnpjEmitente != _cfg.Cnpj) // só notas emitidas por nós (saída)
+                if (nota.CnpjEmitente != _cfg.Cnpj) // não emitida por nós: entrada (se for para nós e a opção estiver ligada)
                 {
-                    if (est != null) { if (nota.CnpjCpfDestinatario == _cfg.Cnpj) est.ComoDestinatario++; else est.Outros++; }
-                    return false;
+                    if (nota.CnpjCpfDestinatario != _cfg.Cnpj) { if (est != null) est.Outros++; return false; }
+                    if (!_cfg.GuardarEntradas) { if (est != null) est.ComoDestinatario++; return false; }
+                    nota.Direcao = Direcao.Entrada;
+                    nota.CaminhoXmlLocal = _storage.Salvar(nota.ChaveAcesso, d.Xml);
+                    _repo.SalvarNotaCompleta(nota);
+                    if (est != null) est.Entradas++;
+                    return false; // entrada nunca conta como saída nova
                 }
                 if (est != null) est.Saidas++;
                 var nova = _repo.ObterNota(nota.ChaveAcesso)?.Status != StatusNota.Baixado;
@@ -244,7 +252,13 @@ public partial class Robo
             {
                 var nota = NfeXml.LerResumo(doc, "NSU");
                 if (nota == null) { if (est != null) est.Outros++; return false; }
-                if (nota.CnpjEmitente != _cfg.Cnpj) { if (est != null) est.Resumos++; return false; }
+                if (nota.CnpjEmitente != _cfg.Cnpj)
+                {
+                    // Resumo de nota de terceiro entregue na distribuição: o CNPJ é destinatário (ou interessado) → entrada
+                    if (_cfg.GuardarEntradas) { nota.Direcao = Direcao.Entrada; _repo.InserirSeNaoExiste(nota); }
+                    if (est != null) est.Resumos++;
+                    return false;
+                }
                 if (est != null) est.Saidas++;
                 return _repo.InserirSeNaoExiste(nota);
             }
@@ -254,7 +268,9 @@ public partial class Robo
                 var ev = NfeXml.LerEvento(doc);
                 // Só eventos de notas emitidas por nós; o CNPJ vem da própria chave de acesso.
                 if (est != null) est.Eventos++;
-                if (ev == null || NfeXml.CnpjDaChave(ev.Chave) != _cfg.Cnpj) return false;
+                if (ev == null) return false;
+                // eventos de notas nossas ou de entradas que já guardamos
+                if (NfeXml.CnpjDaChave(ev.Chave) != _cfg.Cnpj && !(_cfg.GuardarEntradas && _repo.ObterNota(ev.Chave) != null)) return false;
                 if (!NfeXml.TipoCancelaDocumento(ev.Chave, ev.Tipo)) return false; // CC-e e demais: não tratados
                 if (_repo.RegistrarEvento(ev, "NSU"))
                     Console.WriteLine($"  NSU {d.Nsu}: evento {ev.Tipo} (cancelamento) da NF-e {NfeXml.NumeroDaChave(ev.Chave)}.");
@@ -295,6 +311,101 @@ public partial class Robo
             Console.WriteLine($"{Path.GetFileName(arq)}: {total} notas de saída com chave.");
         }
         return novas;
+    }
+
+    // ---------- Busca de chaves pendentes na distribuição (consChNFe, EXPERIMENTAL) ----------
+
+    private const string PrefUltimaBuscaChaves = "ultimaBuscaChaves";
+    public const int MaxChavesPorBusca = 20;
+
+    /// <summary>Quando a busca por chaves pode rodar de novo (mínimo de IntervaloMinimoMinutos entre buscas), ou null se já pode.</summary>
+    public DateTimeOffset? BuscaChavesLiberadaEm(DateTimeOffset? agora = null)
+    {
+        if (!DateTimeOffset.TryParse(_repo.ObterPref(PrefUltimaBuscaChaves), out var ultima)) return null;
+        var libera = ultima.AddMinutes(_cfg.IntervaloMinimoMinutos);
+        return libera > (agora ?? DateTimeOffset.Now) ? libera : null;
+    }
+
+    /// <summary>
+    /// EXPERIMENTAL. Para cada chave pendente (até <see cref="MaxChavesPorBusca"/>), pergunta à distribuição DF-e pelo documento.
+    /// Pelo que sei, a Sefaz só entrega o XML se o seu CNPJ for parte do documento (emitente, destinatário...); caso contrário
+    /// a chave fica INDISPONIVEL (não tenho fonte verificada para o comportamento exato). Respeita um intervalo mínimo entre
+    /// buscas e interrompe tudo ao receber 656.
+    /// </summary>
+    public async Task<ResultadoBuscaChaves> BuscarPendentesPorChaveAsync(int limite, bool forcar, CancellationToken ct)
+    {
+        _cfg.ValidarParaSefaz();
+        using var cert = CertificadoService.ObterCertificado(_cfg.CertificadoPfx, _cfg.SenhaCertificado);
+        using var http = SefazHttp.CriarClient(cert);
+        return await BuscarPendentesPorChaveAsync(http, limite, forcar, ct);
+    }
+
+    private readonly SemaphoreSlim _buscaChaves = new(1, 1);
+
+    public async Task<ResultadoBuscaChaves> BuscarPendentesPorChaveAsync(HttpClient http, int limite, bool forcar, CancellationToken ct)
+    {
+        if (_cfg.Cnpj.Length != 14) throw new InvalidOperationException("Cnpj deve ter 14 dígitos.");
+        if (!await _buscaChaves.WaitAsync(0, ct)) return new ResultadoBuscaChaves(0, 0, 0, 0, "Já existe uma busca por chaves em andamento.");
+        try { return await BuscarChavesInternoAsync(http, limite, forcar, ct); }
+        finally { _buscaChaves.Release(); }
+    }
+
+    private async Task<ResultadoBuscaChaves> BuscarChavesInternoAsync(HttpClient http, int limite, bool forcar, CancellationToken ct)
+    {
+        if (EsperaRestante() is { } e && e.Restante > TimeSpan.Zero && _repo.ObterPref(PrefUltimaConsulta)?.EndsWith("|656") == true)
+            return new ResultadoBuscaChaves(0, 0, 0, 0, $"A Sefaz pediu para aguardar (656); tente após {e.LiberadoEm.LocalDateTime:HH:mm}.");
+        if (!forcar && BuscaChavesLiberadaEm() is { } lib)
+            return new ResultadoBuscaChaves(0, 0, 0, 0, $"Última busca por chaves foi há pouco; a próxima é liberada às {lib.LocalDateTime:HH:mm} (evita consumo indevido).");
+
+        var chaves = _repo.ListarChavesPendentes(Math.Clamp(limite, 1, MaxChavesPorBusca));
+        if (chaves.Count == 0) return new ResultadoBuscaChaves(0, 0, 0, 0, "Nenhuma chave pendente.");
+
+        var dist = new SefazDistribuicao(http, _cfg, ServicosDistribuicao.Nfe(_cfg));
+        int consultadas = 0, obtidas = 0, indisponiveis = 0, erros = 0;
+        string? msg = null;
+        _repo.SalvarPref(PrefUltimaBuscaChaves, DateTimeOffset.Now.ToString("o"));
+
+        foreach (var chave in chaves)
+        {
+            if (ct.IsCancellationRequested) { msg = "Cancelada."; break; }
+            consultadas++;
+            try
+            {
+                var ret = await dist.ConsultarPorChaveAsync(chave, ct);
+                Console.WriteLine($"  {chave}: cStat={ret.CStat} ({ret.XMotivo}) docs={ret.Documentos.Count}");
+                if (ret.CStat == "656")
+                {
+                    RegistrarFimDeConsulta("656");
+                    msg = "A Sefaz pediu para aguardar (656); a busca foi interrompida.";
+                    break;
+                }
+                if (ret.CStat == "138" && ret.Documentos.Count > 0)
+                {
+                    foreach (var d in ret.Documentos) ProcessarDocumento(d);
+                    if (_repo.ObterNota(chave)?.Status == StatusNota.Baixado) { obtidas++; }
+                    else { _repo.RegistrarConsulta(chave, StatusNota.Indisponivel, $"{ret.CStat} - {ret.XMotivo}", "A Sefaz devolveu só resumo/evento"); indisponiveis++; }
+                }
+                else if (ret.CStat == "137")
+                {
+                    _repo.RegistrarConsulta(chave, StatusNota.Indisponivel, $"{ret.CStat} - {ret.XMotivo}", "A Sefaz não entregou o XML desta chave (seu CNPJ pode não fazer parte do documento)");
+                    indisponiveis++;
+                }
+                else
+                {
+                    _repo.RegistrarConsulta(chave, StatusNota.Erro, $"{ret.CStat} - {ret.XMotivo}", $"{ret.CStat} - {ret.XMotivo}");
+                    erros++;
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _repo.RegistrarConsulta(chave, StatusNota.Erro, null, ex.Message);
+                erros++;
+                Console.WriteLine($"  {chave}: erro - {ex.Message}");
+            }
+            await Task.Delay(TimeSpan.FromSeconds(_cfg.PausaEntreRequisicoesSegundos), ct);
+        }
+        return new ResultadoBuscaChaves(consultadas, obtidas, indisponiveis, erros,
+            msg ?? $"{consultadas} chave(s) consultada(s): {obtidas} XML obtido(s), {indisponiveis} indisponível(is), {erros} com erro.");
     }
 
     // ---------- Consulta por chave (nfeConsultaProtocolo) ----------

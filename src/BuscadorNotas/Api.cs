@@ -10,7 +10,7 @@ using Microsoft.Extensions.FileProviders;
 
 namespace BuscadorNotas;
 
-public record ConfigRequisicao(int? IntervaloMinutos, bool? Automatica, int? Ambiente, string? Cnpj, string? CufAutor = null, bool? BuscarCte = null, bool? BuscarMdfe = null);
+public record ConfigRequisicao(int? IntervaloMinutos, bool? Automatica, int? Ambiente, string? Cnpj, string? CufAutor = null, bool? BuscarCte = null, bool? BuscarMdfe = null, bool? GuardarEntradas = null);
 public record ZipRequisicao(List<string>? Chaves);
 
 /// <summary>API HTTP (Minimal API) + arquivos estáticos da interface (wwwroot). Reutiliza Repositorio, Robo e SyncService.</summary>
@@ -123,6 +123,7 @@ public static class ApiServer
         MapearSync(api, sync);
         MapearEntrada(api, entrada);
         MapearConfiguracao(api, cfg, repo, sync);
+        MapearPendentes(api, cfg, repo, robo);
         return app;
     }
 
@@ -140,6 +141,9 @@ public static class ApiServer
     {
         chave = n.ChaveAcesso,
         tipo = n.Tipo,
+        direcao = n.Direcao,
+        emitenteNome = n.NomeEmitente,
+        emitenteDoc = n.CnpjEmitente,
         numero = n.NumeroNota,
         serie = n.Serie,
         destinatarioNome = n.NomeDestinatario,
@@ -166,6 +170,12 @@ public static class ApiServer
         if (!string.IsNullOrEmpty(f.Situacao) &&
             !new[] { Situacao.Autorizada, Situacao.Cancelada, Situacao.Denegada, Situacao.Desconhecida }.Contains(f.Situacao.ToUpperInvariant()))
             return "Parâmetro 'situacao' inválido.";
+        // Sem o parâmetro, só saídas (comportamento original); "TODAS" mostra tudo.
+        var dir = ((string?)q["direcao"])?.Trim().ToUpperInvariant();
+        if (string.IsNullOrEmpty(dir)) f.Direcao = Direcao.Saida;
+        else if (dir == "TODAS") f.Direcao = null;
+        else if (Direcao.Todas.Contains(dir)) f.Direcao = dir;
+        else return "Parâmetro 'direcao' inválido (SAIDA, ENTRADA, OUTRA ou TODAS).";
         if (!string.IsNullOrEmpty(f.Tipo) && !TipoDoc.Todos.Contains(f.Tipo.ToUpperInvariant()))
             return "Parâmetro 'tipo' inválido (NFE, NFCE, CTE, MDFE, CFE ou NFSE).";
         if (!string.IsNullOrEmpty(f.Xml) && f.Xml.ToUpperInvariant() is not ("BAIXADO" or "PENDENTE"))
@@ -200,14 +210,14 @@ public static class ApiServer
 
             var pt = CultureInfo.GetCultureInfo("pt-BR");
             var sb = new StringBuilder("﻿");
-            sb.Append("Tipo;Numero;Serie;Chave;Destinatario;Documento;Emissao;Valor;Situacao;XML\r\n");
+            sb.Append("Direcao;Tipo;Numero;Serie;Chave;Emitente;Documento do emitente;Destinatario;Documento;Emissao;Valor;Situacao;XML\r\n");
             const int lote = 1000;
             for (int off = 0; off < MaxLinhasCsv; off += lote)
             {
                 f.Limite = lote; f.Offset = off;
                 var itens = repo.Buscar(f);
                 foreach (var n in itens)
-                    sb.Append(string.Join(';', Cel(TipoDoc.Rotulo(n.Tipo)), Cel(n.NumeroNota), Cel(n.Serie), Cel(n.ChaveAcesso), Cel(n.NomeDestinatario), Cel(n.CnpjCpfDestinatario),
+                    sb.Append(string.Join(';', Cel(n.Direcao), Cel(TipoDoc.Rotulo(n.Tipo)), Cel(n.NumeroNota), Cel(n.Serie), Cel(n.ChaveAcesso), Cel(n.NomeEmitente), Cel(n.CnpjEmitente), Cel(n.NomeDestinatario), Cel(n.CnpjCpfDestinatario),
                         Cel(n.DataEmissao is { Length: >= 10 } d ? d[..10] : ""), n.ValorTotal?.ToString("F2", pt) ?? "",
                         Situacao.Classificar(n.SituacaoSefaz), n.Status == StatusNota.Baixado ? "BAIXADO" : "PENDENTE")).Append("\r\n");
                 if (itens.Count < lote) break;
@@ -346,6 +356,32 @@ public static class ApiServer
 
     // ---------------------------------------------------------------- Configurações e certificado
 
+    // ---------------------------------------------------------------- Chaves pendentes (consChNFe, experimental)
+
+    private static void MapearPendentes(RouteGroupBuilder api, Configuracao cfg, Repositorio repo, Robo robo)
+    {
+        object Estado() => new
+        {
+            pendentes = repo.ContarPorStatus(StatusNota.Pendente, StatusNota.Erro),
+            indisponiveis = repo.ContarPorStatus(StatusNota.Indisponivel),
+            maximoPorBusca = Robo.MaxChavesPorBusca,
+            liberadaEm = robo.BuscaChavesLiberadaEm(),
+        };
+
+        api.MapGet("/pendentes", () => Results.Ok(Estado()));
+
+        api.MapPost("/pendentes/buscar", async (HttpRequest req, CancellationToken ct) =>
+        {
+            try
+            {
+                var forcar = string.Equals(req.Query["forcar"], "true", StringComparison.OrdinalIgnoreCase);
+                var r = await robo.BuscarPendentesPorChaveAsync(Robo.MaxChavesPorBusca, forcar, ct);
+                return Results.Ok(new { resultado = r, estado = Estado() });
+            }
+            catch (InvalidOperationException ex) { return Results.BadRequest(new { erro = ex.Message }); }
+        });
+    }
+
     private static void MapearConfiguracao(RouteGroupBuilder api, Configuracao cfg, Repositorio repo, SyncService sync)
     {
         object Cfg() => new
@@ -358,6 +394,7 @@ public static class ApiServer
             cufAutorEfetivo = cfg.CUFAutorEfetivo,
             buscarCte = cfg.DistribuirCte,
             buscarMdfe = cfg.DistribuirMdfe,
+            guardarEntradas = cfg.GuardarEntradas,
             urlMdfeConfigurada = !string.IsNullOrWhiteSpace(cfg.UrlDistribuicaoMdfe),
             apiProtegidaPorToken = !string.IsNullOrEmpty(cfg.ApiToken),
         };
@@ -379,6 +416,7 @@ public static class ApiServer
             if (b.Automatica is { } au) { cfg.SincronizacaoAutomatica = au; repo.SalvarPref("automatica", au.ToString()); }
             if (b.Ambiente is { } am) { cfg.Ambiente = am; repo.SalvarPref("ambiente", am.ToString(CultureInfo.InvariantCulture)); }
             if (b.BuscarCte is { } bc) { cfg.DistribuirCte = bc; repo.SalvarPref("distribuirCte", bc.ToString()); }
+            if (b.GuardarEntradas is { } ge) { cfg.GuardarEntradas = ge; repo.SalvarPref("guardarEntradas", ge.ToString()); }
             if (b.BuscarMdfe is { } bm) { cfg.DistribuirMdfe = bm; repo.SalvarPref("distribuirMdfe", bm.ToString()); }
             if (b.CufAutor is { } uf) { cfg.CUFAutor = uf; repo.SalvarPref("cufAutor", uf); }
             if (!string.IsNullOrWhiteSpace(b.Cnpj))

@@ -1,3 +1,5 @@
+using System.Net.Http.Json;
+using System.Text.Json;
 using System.IO.Compression;
 using System.Text;
 using System.Xml.Linq;
@@ -16,6 +18,9 @@ public sealed class SefazFalsa : IAsyncDisposable
 {
     public Dictionary<string, string> Respostas { get; } = new();
     public Dictionary<string, string> Pedidos { get; } = new();
+    /// <summary>Se definido, monta a resposta a partir do corpo do pedido (caminho, corpo).</summary>
+    public Func<string, string, string>? Dinamica { get; set; }
+    public int TotalPedidos;
     private WebApplication _app = null!;
     public string Base { get; private set; } = "";
 
@@ -41,7 +46,10 @@ public sealed class SefazFalsa : IAsyncDisposable
             _app.MapPost("/" + c, async (HttpRequest req) =>
             {
                 using var sr = new StreamReader(req.Body);
-                Pedidos[c] = await sr.ReadToEndAsync();
+                var corpo = await sr.ReadToEndAsync();
+                Pedidos[c] = corpo;
+                Interlocked.Increment(ref TotalPedidos);
+                if (Dinamica != null) return Results.Content(Dinamica(c, corpo), "application/soap+xml");
                 return Results.Content(Respostas.GetValueOrDefault(c) ?? Resposta("137", "nada"), "application/soap+xml");
             });
         await _app.StartAsync();
@@ -241,11 +249,13 @@ public class DistribuicaoExtraTestes
         Assert.Equal(1, r.NovasNotas);
         Assert.Contains("5 documento(s) recebido(s)", r.Mensagem);
         Assert.Contains("1 emitido(s) por você", r.Mensagem);
-        Assert.Contains("1 em que você é destinatário", r.Mensagem);
+        Assert.Contains("1 de entrada guardada(s)", r.Mensagem);
         Assert.Contains("1 resumo(s) de notas de terceiros", r.Mensagem);
         Assert.Contains("1 evento(s)", r.Mensagem);
         Assert.Contains("1 outro(s)", r.Mensagem);
-        Assert.Equal(1, f.Repo.Contar(new FiltroBusca()));                      // só a saída foi guardada
+        Assert.Equal(1, f.Repo.Contar(new FiltroBusca { Direcao = Direcao.Saida }));
+        Assert.Equal(2, f.Repo.Contar(new FiltroBusca { Direcao = Direcao.Entrada }));   // nota completa + resumo de terceiro
+        Assert.Equal(3, f.Repo.Contar(new FiltroBusca()));                                // a nota "nem emitente nem destinatário" não é guardada
     }
 
     [Fact]
@@ -253,6 +263,156 @@ public class DistribuicaoExtraTestes
     {
         Assert.Equal("", new EstatisticaCiclo().Texto());
         var e = new EstatisticaCiclo { Recebidos = 8955, ComoDestinatario = 8955 };
-        Assert.Equal("8955 documento(s) recebido(s): 8955 em que você é destinatário (entrada)", e.Texto());
+        Assert.Equal("8955 documento(s) recebido(s): 8955 em que você é destinatário (entrada, não guardada)", e.Texto());
     }
+
+    [Fact]
+    public async Task Entradas_ficam_separadas_das_saidas_e_fora_do_painel()
+    {
+        var (f, sefaz, robo) = await Montar(cte: false, mdfe: false);
+        await using var _f = f; await using var _s = sefaz;
+        var terceiro = "12345678000195";
+        var kSaida = Chave("55", 1); var kEntrada = Chave("55", 2, terceiro);
+        sefaz.Respostas["nfe"] = SefazFalsa.Resposta("138", "Documento localizado", "000000000000003", "000000000000003",
+            ("000000000000001", XmlNfeDoTeste(kSaida, Eu, Outro)),
+            ("000000000000002", XmlNfeDoTeste(kEntrada, terceiro, Eu)),
+            ("000000000000003", $"""<procEventoNFe xmlns="http://www.portalfiscal.inf.br/nfe"><evento><infEvento><chNFe>{kEntrada}</chNFe><tpEvento>110111</tpEvento><nSeqEvento>1</nSeqEvento></infEvento></evento><retEvento><infEvento><cStat>135</cStat></infEvento></retEvento></procEventoNFe>"""));
+
+        var r = await robo.ExecutarCicloComAsync(new HttpClient(), null, default);
+
+        Assert.Equal(1, r.NovasNotas);                                          // entrada nunca conta como saída nova
+        var ent = f.Repo.ObterNota(kEntrada)!;
+        Assert.Equal(Direcao.Entrada, ent.Direcao);
+        Assert.Equal(StatusNota.Baixado, ent.Status);
+        Assert.Equal(Situacao.Cancelada, Situacao.Classificar(ent.SituacaoSefaz));
+        Assert.Equal(Direcao.Saida, f.Repo.ObterNota(kSaida)!.Direcao);
+
+        var resumo = f.Repo.ObterResumo("2026-10");
+        Assert.Equal(1, resumo.Total);                                          // painel só conta saídas
+        Assert.Equal(1, resumo.TotalEntradas);
+        Assert.Equal(1, resumo.NotasNoMes);
+
+        await f.IniciarAsync();                                                 // mesma base de dados
+        // API: sem parâmetro só saídas; direcao=ENTRADA e TODAS
+        var padrao = await f.Http.GetFromJsonAsync<JsonElement>("/api/notas");
+        Assert.Equal(1, padrao.GetProperty("total").GetInt32());
+        var entradas = await f.Http.GetFromJsonAsync<JsonElement>("/api/notas?direcao=ENTRADA");
+        Assert.Equal(1, entradas.GetProperty("total").GetInt32());
+        Assert.Equal("ENTRADA", entradas.GetProperty("itens")[0].GetProperty("direcao").GetString());
+        var todas = await f.Http.GetFromJsonAsync<JsonElement>("/api/notas?direcao=TODAS");
+        Assert.Equal(2, todas.GetProperty("total").GetInt32());
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, (await f.Http.GetAsync("/api/notas?direcao=XYZ")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Com_guardar_entradas_desligado_so_as_saidas_sao_guardadas()
+    {
+        var (f, sefaz, robo) = await Montar(cte: false, mdfe: false);
+        await using var _f = f; await using var _s = sefaz;
+        f.Cfg.GuardarEntradas = false;
+        var terceiro = "12345678000195";
+        var kEntrada = Chave("55", 2, terceiro);
+        sefaz.Respostas["nfe"] = SefazFalsa.Resposta("138", "Documento localizado", "000000000000001", "000000000000001",
+            ("000000000000001", XmlNfeDoTeste(kEntrada, terceiro, Eu)));
+
+        await robo.ExecutarCicloComAsync(new HttpClient(), null, default);
+
+        Assert.Null(f.Repo.ObterNota(kEntrada));
+    }
+
+    [Fact]
+    public async Task Importacao_de_xml_guarda_entrada_e_banco_antigo_e_migrado()
+    {
+        var (f, sefaz, robo) = await Montar(cte: false, mdfe: false);
+        await using var _f = f; await using var _s = sefaz;
+        var terceiro = "12345678000195";
+        var k = Chave("55", 7, terceiro);
+        var r = robo.ImportarXmlBytes(System.Text.Encoding.UTF8.GetBytes(XmlNfeDoTeste(k, terceiro, Eu)), incluirOutrosCnpjs: false);
+        Assert.Equal(Desfecho.Importado, r.Desfecho);
+        Assert.Equal(Direcao.Entrada, f.Repo.ObterNota(k)!.Direcao);
+
+        var kAlheia = Chave("55", 8, terceiro);
+        var r2 = robo.ImportarXmlBytes(System.Text.Encoding.UTF8.GetBytes(XmlNfeDoTeste(kAlheia, terceiro, Outro)), incluirOutrosCnpjs: false);
+        Assert.Equal(Desfecho.Ignorado, r2.Desfecho);
+
+        // banco criado antes das colunas Direcao/NomeEmitente
+        var antigo = Path.Combine(f.Dir, "antigo.db");
+        using (var c = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={antigo}"))
+        {
+            c.Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = "CREATE TABLE NotasSaidaBaixadas (ChaveAcesso TEXT PRIMARY KEY, CnpjEmitente TEXT, NumeroNota TEXT, Serie TEXT, DataEmissao TEXT, CnpjCpfDestinatario TEXT, NomeDestinatario TEXT, ValorTotal REAL, CaminhoXmlLocal TEXT, Status TEXT NOT NULL, SituacaoSefaz TEXT, Origem TEXT, Tentativas INTEGER NOT NULL DEFAULT 0, UltimoErro TEXT, Tipo TEXT NOT NULL DEFAULT 'NFE'); INSERT INTO NotasSaidaBaixadas (ChaveAcesso, Status) VALUES ('" + k + "', 'BAIXADO');";
+            cmd.ExecuteNonQuery();
+        }
+        var migrado = new Repositorio(antigo);
+        Assert.Equal(Direcao.Saida, migrado.ObterNota(k)!.Direcao);
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+    }
+
+    // ---------------- busca de chaves pendentes (consChNFe) ----------------
+
+    [Fact]
+    public async Task Busca_por_chave_obtem_o_xml_marca_indisponivel_e_respeita_o_intervalo()
+    {
+        var (f, sefaz, robo) = await Montar(cte: false, mdfe: false);
+        await using var _f = f; await using var _s = sefaz;
+        var kOk = Chave("55", 1); var kNao = Chave("55", 2);
+        foreach (var k in new[] { kOk, kNao })
+            f.Repo.InserirSeNaoExiste(new NotaSaida { ChaveAcesso = k, CnpjEmitente = Eu, NumeroNota = "1", Serie = "1", Status = StatusNota.Pendente, Origem = "SPED" });
+
+        sefaz.Dinamica = (_, corpo) => corpo.Contains(kOk)
+            ? SefazFalsa.Resposta("138", "Documento localizado", "000000000000000", "000000000000000", ("000000000000009", XmlNfeDoTeste(kOk, Eu, Outro)))
+            : SefazFalsa.Resposta("137", "Nenhum documento localizado");
+
+        var r = await robo.BuscarPendentesPorChaveAsync(new HttpClient(), 20, forcar: false, default);
+
+        Assert.Equal(2, r.Consultadas); Assert.Equal(1, r.Obtidas); Assert.Equal(1, r.Indisponiveis);
+        Assert.Contains("<consChNFe", sefaz.Pedidos["nfe"]);
+        Assert.Equal(StatusNota.Baixado, f.Repo.ObterNota(kOk)!.Status);
+        Assert.True(File.Exists(f.Repo.ObterNota(kOk)!.CaminhoXmlLocal));
+        Assert.Equal(StatusNota.Indisponivel, f.Repo.ObterNota(kNao)!.Status);
+
+        // nova busca logo em seguida é recusada sem tocar na Sefaz
+        var antes = sefaz.TotalPedidos;
+        f.Repo.InserirSeNaoExiste(new NotaSaida { ChaveAcesso = Chave("55", 3), CnpjEmitente = Eu, NumeroNota = "3", Status = StatusNota.Pendente, Origem = "SPED" });
+        var r2 = await robo.BuscarPendentesPorChaveAsync(new HttpClient(), 20, forcar: false, default);
+        Assert.Equal(0, r2.Consultadas);
+        Assert.Equal(antes, sefaz.TotalPedidos);
+        Assert.Contains("liberada", r2.Mensagem);
+        Assert.Equal(1, (await robo.BuscarPendentesPorChaveAsync(new HttpClient(), 20, forcar: true, default)).Consultadas);
+    }
+
+    [Fact]
+    public async Task Busca_por_chave_para_ao_receber_656_e_bloqueia_novas_consultas()
+    {
+        var (f, sefaz, robo) = await Montar(cte: false, mdfe: false);
+        await using var _f = f; await using var _s = sefaz;
+        for (int i = 1; i <= 3; i++)
+            f.Repo.InserirSeNaoExiste(new NotaSaida { ChaveAcesso = Chave("55", i), CnpjEmitente = Eu, NumeroNota = i.ToString(), Status = StatusNota.Pendente, Origem = "SPED" });
+        sefaz.Dinamica = (_, _) => SefazFalsa.Resposta("656", "Consumo Indevido");
+
+        var r = await robo.BuscarPendentesPorChaveAsync(new HttpClient(), 20, forcar: false, default);
+
+        Assert.Equal(1, r.Consultadas);                       // parou na primeira
+        Assert.Contains("656", r.Mensagem);
+        Assert.NotNull(robo.EsperaRestante());                // bloqueio compartilhado com a sincronização
+        var r2 = await robo.BuscarPendentesPorChaveAsync(new HttpClient(), 20, forcar: true, default);
+        Assert.Equal(0, r2.Consultadas);                      // nem --forcar ignora o 656
+        Assert.Equal(1, sefaz.TotalPedidos);
+    }
+
+    [Fact]
+    public async Task Api_de_pendentes_informa_contagens_e_valida_a_configuracao()
+    {
+        await using var f = await new ApiFixture().IniciarAsync();
+        f.Repo.InserirSeNaoExiste(new NotaSaida { ChaveAcesso = Chave("55", 1), CnpjEmitente = Eu, NumeroNota = "1", Status = StatusNota.Pendente, Origem = "SPED" });
+        var estado = await f.Http.GetFromJsonAsync<JsonElement>("/api/pendentes");
+        Assert.Equal(1, estado.GetProperty("pendentes").GetInt32());
+        Assert.Equal(20, estado.GetProperty("maximoPorBusca").GetInt32());
+        // sem certificado configurado a busca é recusada com mensagem, sem erro 500
+        var resp = await f.Http.PostAsync("/api/pendentes/buscar", null);
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, resp.StatusCode);
+    }
+
+    private static string Chave(string mod, int n) => Chave(mod, n, Eu);
 }

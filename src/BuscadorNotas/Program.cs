@@ -24,6 +24,9 @@ const string Ajuda = """
                                   (--todos: não exige que o emitente seja o CNPJ configurado)
       importar-sped <arq...>      Lê registros C100 de saída de arquivos SPED Fiscal e cria pendências.
       baixar-pendentes [--max N]  Consulta por chave (nfeConsultaProtocolo) as notas PENDENTES.
+      buscar-chaves [--max N] [--forcar]
+                                  EXPERIMENTAL: pede à distribuição DF-e o XML das chaves pendentes (máx. 20 por vez,
+                                  intervalo mínimo entre buscas; --forcar ignora o intervalo — risco de bloqueio 656).
       buscar [filtros]            Pesquisa no banco local.
           --chave <44 dígitos>    --numero <n>        --serie <s>
           --de <aaaa-mm-dd>       --ate <aaaa-mm-dd>
@@ -132,6 +135,13 @@ try
         case "baixar-pendentes":
             await robo.BaixarPendentesAsync(int.Parse(Opcao(resto, "--max") ?? "50", CultureInfo.InvariantCulture), cts.Token);
             break;
+
+        case "buscar-chaves":
+        {
+            var rb = await robo.BuscarPendentesPorChaveAsync(int.Parse(Opcao(resto, "--max") ?? "20", CultureInfo.InvariantCulture), resto.Contains("--forcar"), cts.Token);
+            Console.WriteLine(rb.Mensagem);
+            break;
+        }
 
         case "buscar":
             Buscar(repo, resto);

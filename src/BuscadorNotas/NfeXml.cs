@@ -70,6 +70,7 @@ public static class NfeXml
             ChaveAcesso = chave,
             Tipo = TipoDoc.DoModelo(Texto(ide, "mod") ?? ModeloDaChave(chave)) is { } t && t is TipoDoc.Nfe or TipoDoc.Nfce ? t : TipoDoc.Nfe,
             CnpjEmitente = Texto(emit, "CNPJ") ?? Texto(emit, "CPF"),
+            NomeEmitente = Texto(emit, "xNome"),
             NumeroNota = Texto(ide, "nNF"),
             Serie = Texto(ide, "serie"),
             DataEmissao = NormalizarData(Texto(ide, "dhEmi") ?? Texto(ide, "dEmi")),
@@ -90,6 +91,7 @@ public static class NfeXml
         {
             ChaveAcesso = chave,
             CnpjEmitente = Texto(doc, "CNPJ") ?? Texto(doc, "CPF"),
+            NomeEmitente = Texto(doc, "xNome"),
             NumeroNota = NumeroDaChave(chave),
             Serie = SerieDaChave(chave),
             DataEmissao = NormalizarData(Texto(doc, "dhEmi")),

@@ -109,6 +109,12 @@
             <input id="f-busca" class="field" type="search" placeholder="Ex.: 3524… ou Comercial Alfa" autocomplete="off" />
           </div>
           <div>
+            <label class="label" for="f-dir">Direção</label>
+            <select id="f-dir" class="field">
+              <option value="">Saídas (emitidas por você)</option><option value="ENTRADA">Entradas (você é o destinatário)</option><option value="OUTRA">Outras</option><option value="TODAS">Todas</option>
+            </select>
+          </div>
+          <div>
             <label class="label" for="f-tipo">Tipo de documento</label>
             <select id="f-tipo" class="field">
               <option value="">Todos</option><option value="NFE">NF-e</option><option value="NFCE">NFC-e</option><option value="CTE">CT-e</option>
@@ -221,6 +227,7 @@
             </div>
           </div>
           <label class="mt-4 flex items-center gap-2 text-sm"><input id="cfg-auto" type="checkbox" class="h-4 w-4 rounded" />Sincronização automática ativa</label>
+          <label class="mb-3 flex items-center gap-2 text-sm"><input id="cfg-entradas" type="checkbox" class="h-4 w-4 rounded" />Guardar também notas de entrada (em que você é o destinatário) — separadas das saídas</label>
           <fieldset class="mt-4 rounded-lg border border-dashed border-slate-300 p-3 text-sm dark:border-slate-700">
             <legend class="px-1 text-xs font-medium text-slate-500 dark:text-slate-400">Outros documentos na Sefaz (experimental, desligado por padrão)</legend>
             <label class="flex items-center gap-2"><input id="cfg-cte" type="checkbox" class="h-4 w-4 rounded" />Também buscar CT-e</label>
@@ -238,6 +245,14 @@
             <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Só notas emitidas por este CNPJ são importadas. Sem CNPJ, todas são aceitas.</p>
           </div>
           <div class="mt-4"><button class="btn-primary" id="btn-salvar-cfg">Salvar</button></div>
+        </section>
+
+        <section class="card p-5" id="card-pendentes">
+          <h2 class="text-base font-semibold">Chaves pendentes <span class="chip bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300">experimental</span></h2>
+          <p class="mt-1 text-sm text-slate-600 dark:text-slate-400">Chaves conhecidas (de SPED ou listas) sem XML. Aqui você pede à distribuição da Sefaz o XML de cada uma, no máximo <span id="pend-max">20</span> por vez e com intervalo mínimo entre buscas.</p>
+          <p class="mt-2 text-sm" id="pend-estado">—</p>
+          <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">O formato do pedido foi escrito de memória e nunca foi testado na Sefaz real. Pelo que sei, a Sefaz só devolve o XML quando o seu CNPJ faz parte do documento; chaves sem retorno ficam como indisponíveis (use os XMLs do emissor/contador para elas). Exige a senha do certificado já informada.</p>
+          <div class="mt-3"><button class="btn-primary" id="btn-buscar-pend">Buscar XML das pendentes</button></div>
         </section>
 
         <section class="card p-5" id="card-entrada">
@@ -421,10 +436,13 @@ function renderKpis(d) {
     ["XML baixado / pendente", `${r.xmlBaixados} <span class="text-slate-400">/</span> ${r.xmlPendentes}`,
       r.xmlPendentes ? `<button class="font-medium text-blue-600 hover:underline dark:text-blue-400" data-filtra-pend>ver pendentes</button>` : "tudo baixado"],
     ["Última sincronização", ult, prox],
+    ["Notas de entrada guardadas", String(r.totalEntradas || 0),
+      r.totalEntradas ? `<button class="font-medium text-blue-600 hover:underline dark:text-blue-400" data-filtra-ent>ver entradas</button> · fora do faturamento` : "você é o destinatário; ficam separadas das saídas"],
   ];
   $("#kpis").innerHTML = cards.map(([t, v, sub]) => `
     <div class="card p-4"><p class="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">${t}</p>
     <p class="mt-2 text-2xl font-semibold tabular-nums">${v}</p><p class="mt-1 text-xs text-slate-500 dark:text-slate-400">${sub}</p></div>`).join("");
+  const be = $("[data-filtra-ent]"); if (be) be.onclick = () => { $("#f-dir").value = "ENTRADA"; ir("notas"); lerFiltros(); };
   const b = $("[data-filtra-pend]"); if (b) b.onclick = () => { $("#f-xml").value = "PENDENTE"; ir("notas"); lerFiltros(); };
 }
 document.querySelectorAll("[data-goto]").forEach(b => b.addEventListener("click", () => ir(b.dataset.goto)));
@@ -440,12 +458,12 @@ const ROTULO_TIPO = { NFE: "NF-e", NFCE: "NFC-e", CTE: "CT-e", MDFE: "MDF-e", CF
 const ROTULO_SIT = { AUTORIZADA: "Autorizada", CANCELADA: "Cancelada", DENEGADA: "Denegada", DESCONHECIDA: "Sem informação" };
 
 function lerFiltros() {
-  S.filtro = { busca: $("#f-busca").value.trim(), de: $("#f-de").value, ate: $("#f-ate").value, situacao: $("#f-sit").value, xml: $("#f-xml").value, tipo: $("#f-tipo").value };
+  S.filtro = { busca: $("#f-busca").value.trim(), de: $("#f-de").value, ate: $("#f-ate").value, situacao: $("#f-sit").value, xml: $("#f-xml").value, tipo: $("#f-tipo").value, direcao: $("#f-dir").value };
   S.pag = 1; carregarNotas();
 }
 function queryFiltros() {
   const q = new URLSearchParams();
-  for (const k of ["busca", "de", "ate", "situacao", "xml", "tipo"]) if (S.filtro[k]) q.set(k, S.filtro[k]);
+  for (const k of ["busca", "de", "ate", "situacao", "xml", "tipo", "direcao"]) if (S.filtro[k]) q.set(k, S.filtro[k]);
   return q;
 }
 let _req = 0;
@@ -475,13 +493,13 @@ function renderTabela() {
       <td class="td"><div class="flex items-center gap-1">
         <code class="font-mono text-xs text-slate-600 dark:text-slate-300" title="${n.chave}">${n.chave.length > 20 ? n.chave.slice(0, 6) + "…" + n.chave.slice(-8) : esc(n.chave)}</code>
         <button class="icon-btn" data-copiar="${n.chave}" aria-label="Copiar identificador do documento ${esc(n.numero)}" title="Copiar chave / identificador">${icon("copy")}</button></div></td>
-      <td class="td"><p class="max-w-[14rem] truncate font-medium">${esc(n.destinatarioNome || "—")}</p><p class="font-mono text-xs text-slate-500 dark:text-slate-400">${esc(docFmt(n.destinatarioDoc))}</p></td>
+      <td class="td">${n.direcao === "SAIDA" ? "" : `<p class="text-[11px] font-semibold uppercase tracking-wide ${n.direcao === "ENTRADA" ? "text-emerald-700 dark:text-emerald-400" : "text-slate-500"}">${n.direcao === "ENTRADA" ? "Entrada · emitente" : "Outra · emitente"}: ${esc(n.emitenteNome || docFmt(n.emitenteDoc) || "—")}</p>`}<p class="max-w-[14rem] truncate font-medium">${esc(n.destinatarioNome || "—")}</p><p class="font-mono text-xs text-slate-500 dark:text-slate-400">${esc(docFmt(n.destinatarioDoc))}</p></td>
       <td class="td whitespace-nowrap tabular-nums">${dataBR(n.emissao)}</td>
       <td class="td whitespace-nowrap text-right font-medium tabular-nums">${brl(n.valor)}</td>
       <td class="td"><span class="chip ${CHIP_SIT[n.situacao]}" title="${esc(n.situacaoCodigo || "")}">${ROTULO_SIT[n.situacao]}</span></td>
       <td class="td">${n.xml === "BAIXADO"
         ? `<span class="chip bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">${icon("check", "h-3 w-3")}Baixado</span>`
-        : `<span class="chip bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300" title="Chave conhecida, XML ainda não obtido">Pendente</span>`}</td>
+        : `<span class="chip bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300" title="${n.status === "INDISPONIVEL" ? "A Sefaz não entregou o XML desta chave; use o XML do emissor/contador" : "Chave conhecida, XML ainda não obtido"}">${n.status === "INDISPONIVEL" ? "Indisponível" : "Pendente"}</span>`}</td>
       <td class="td"><div class="flex justify-end gap-0.5">
         <button class="icon-btn" data-ver="${n.chave}" aria-label="Ver detalhes da NF ${esc(n.numero)}" title="Ver detalhes">${icon("eye")}</button>
         <button class="icon-btn" data-xml="${n.chave}" ${n.xml !== "BAIXADO" ? 'disabled title="XML ainda não disponível"' : 'title="Baixar XML"'} aria-label="Baixar XML da NF ${esc(n.numero)}">${icon("download")}</button></div></td>
@@ -529,7 +547,7 @@ $("#btn-desmarcar").onclick = () => { S.sel.clear(); renderTabela(); };
 $("#pag-ant").onclick = () => { S.pag--; carregarNotas(); };
 $("#pag-prox").onclick = () => { S.pag++; carregarNotas(); };
 $("#tam-pag").onchange = e => { S.tam = +e.target.value; S.pag = 1; carregarNotas(); };
-["f-busca", "f-de", "f-ate", "f-sit", "f-xml", "f-tipo"].forEach(id => $("#" + id).addEventListener(id === "f-busca" ? "input" : "change", debounceFiltro));
+["f-busca", "f-de", "f-ate", "f-sit", "f-xml", "f-tipo", "f-dir"].forEach(id => $("#" + id).addEventListener(id === "f-busca" ? "input" : "change", debounceFiltro));
 let _t; function debounceFiltro() { clearTimeout(_t); _t = setTimeout(lerFiltros, 300); }
 $("#btn-limpar").onclick = () => { $("#filtros").reset(); lerFiltros(); };
 $("#filtros").addEventListener("submit", e => e.preventDefault());
@@ -537,8 +555,8 @@ $("#filtros").addEventListener("submit", e => e.preventDefault());
 /* ações em lote */
 function csvLocal(linhas) {
   const cel = v => { v = String(v ?? ""); if (/^[=+\-@\t\r]/.test(v)) v = "'" + v; return `"${v.replace(/"/g, '""')}"`; };
-  const cab = ["Tipo", "Numero", "Serie", "Chave", "Destinatario", "Documento", "Emissao", "Valor", "Situacao", "XML"];
-  return "﻿" + [cab, ...linhas.map(n => [ROTULO_TIPO[n.tipo] || n.tipo, n.numero, n.serie, n.chave, n.destinatarioNome, n.destinatarioDoc, (n.emissao || "").slice(0, 10),
+  const cab = ["Direcao", "Tipo", "Numero", "Serie", "Chave", "Destinatario", "Documento", "Emissao", "Valor", "Situacao", "XML"];
+  return "﻿" + [cab, ...linhas.map(n => [n.direcao, ROTULO_TIPO[n.tipo] || n.tipo, n.numero, n.serie, n.chave, n.destinatarioNome, n.destinatarioDoc, (n.emissao || "").slice(0, 10),
     n.valor == null ? "" : Number(n.valor).toFixed(2).replace(".", ","), n.situacao, n.xml])].map(l => l.map(cel).join(";")).join("\r\n");
 }
 $("#btn-csv-sel").onclick = () => { const l = [...S.sel.values()]; salvarBlob(new Blob([csvLocal(l)], { type: "text/csv;charset=utf-8" }), "notas-selecionadas.csv"); toast(`CSV com ${l.length} notas gerado`); };
@@ -703,7 +721,24 @@ function renderCertificado(c) {
   $("#cert-aviso").textContent = av.join(" ");
 }
 async function carregarCertificado() { try { renderCertificado(await apiJson("/api/certificado")); } catch (e) { /* sem API */ } }
+async function carregarPendentes() {
+  try {
+    const p = await apiJson("/api/pendentes");
+    $("#pend-max").textContent = p.maximoPorBusca;
+    $("#pend-estado").textContent = `${p.pendentes} pendente(s) · ${p.indisponiveis} indisponível(is)` + (p.liberadaEm ? ` · próxima busca liberada às ${dataHora(p.liberadaEm)}` : "");
+    $("#btn-buscar-pend").disabled = p.pendentes === 0;
+  } catch (e) { $("#pend-estado").textContent = "Não foi possível ler o estado: " + e.message; }
+}
+$("#btn-buscar-pend").onclick = async () => {
+  $("#btn-buscar-pend").disabled = true;
+  try {
+    const r = await apiJson("/api/pendentes/buscar", { method: "POST" });
+    toast(r.resultado.mensagem, r.resultado.erros || r.resultado.consultadas === 0 ? "aviso" : "ok");
+  } catch (e) { toast(e.message, "erro"); }
+  await carregarPendentes(); carregarNotas();
+};
 async function carregarConfig() {
+  carregarPendentes();
   try {
     const c = await apiJson("/api/config");
     const sel = $("#cfg-intervalo");
@@ -711,7 +746,7 @@ async function carregarConfig() {
     sel.value = c.intervaloMinutos; $("#cfg-auto").checked = c.automatica; $("#cfg-ambiente").value = c.ambiente;
     $("#cfg-cnpj").value = c.cnpj ? docFmt(c.cnpj) : "";
     $("#cfg-uf").value = c.cufAutor || "";
-    $("#cfg-cte").checked = !!c.buscarCte; $("#cfg-mdfe").checked = !!c.buscarMdfe;
+    $("#cfg-entradas").checked = c.guardarEntradas !== false; $("#cfg-cte").checked = !!c.buscarCte; $("#cfg-mdfe").checked = !!c.buscarMdfe;
     $("#cfg-mdfe-aviso").textContent = c.urlMdfeConfigurada ? "" : "(falta a URL no appsettings.json)";
     $("#cfg-uf-info").textContent = c.cufAutor ? "" : (c.cufAutorEfetivo ? `Em uso (inferida das notas): ${c.cufAutorEfetivo}.` : "Sem UF: o campo será omitido na consulta.");
   } catch (e) { toast(e.message, "erro"); }
@@ -720,7 +755,7 @@ async function carregarConfig() {
 }
 $("#btn-salvar-cfg").onclick = async () => {
   try {
-    await apiJson("/api/config", { method: "PUT", json: { intervaloMinutos: +$("#cfg-intervalo").value, automatica: $("#cfg-auto").checked, ambiente: +$("#cfg-ambiente").value, cnpj: $("#cfg-cnpj").value.replace(/\D/g, "") || null, cufAutor: $("#cfg-uf").value, buscarCte: $("#cfg-cte").checked, buscarMdfe: $("#cfg-mdfe").checked } });
+    await apiJson("/api/config", { method: "PUT", json: { intervaloMinutos: +$("#cfg-intervalo").value, automatica: $("#cfg-auto").checked, ambiente: +$("#cfg-ambiente").value, cnpj: $("#cfg-cnpj").value.replace(/\D/g, "") || null, cufAutor: $("#cfg-uf").value, guardarEntradas: $("#cfg-entradas").checked, buscarCte: $("#cfg-cte").checked, buscarMdfe: $("#cfg-mdfe").checked } });
     toast("Configurações salvas"); atualizarStatus();
   } catch (e) { toast(e.message, "erro"); }
 };

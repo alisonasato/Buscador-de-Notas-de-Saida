@@ -92,7 +92,8 @@ public partial class Robo
         {
             var ev = NfeXml.LerEvento(doc);
             if (ev == null) return new(Desfecho.Rejeitado, "evento sem chave/tipo válidos");
-            if (!NossoCnpj(NfeXml.CnpjDaChave(ev.Chave))) return new(Desfecho.Ignorado, "evento de documento de outro emitente");
+            if (!NossoCnpj(NfeXml.CnpjDaChave(ev.Chave)) && !(_cfg.GuardarEntradas && _repo.ObterNota(ev.Chave) != null))
+                return new(Desfecho.Ignorado, "evento de documento de outro emitente");
             if (!NfeXml.TipoCancelaDocumento(ev.Chave, ev.Tipo)) return new(Desfecho.Ignorado, $"evento {ev.Tipo} não é tratado (só cancelamento)");
             var novo = _repo.RegistrarEvento(ev, "XML");
             return new(Desfecho.Importado, $"cancelamento do documento {NfeXml.NumeroDaChave(ev.Chave)}", Novo: novo);
@@ -103,12 +104,17 @@ public partial class Robo
 
         var nota = DocumentosFiscais.Ler(doc, "XML");
         if (nota == null) return new(Desfecho.Rejeitado, $"{TipoDoc.Rotulo(tipoDoc)} sem identificador válido ou em layout não reconhecido");
-        if (!NossoCnpj(nota.CnpjEmitente)) return new(Desfecho.Ignorado, $"emitente {nota.CnpjEmitente} não é o seu CNPJ");
+        nota.Direcao = Direcao.De(nota, _cfg.Cnpj);
+        var aceita = nota.Direcao == Direcao.Saida || incluirOutrosCnpjs || (nota.Direcao == Direcao.Entrada && _cfg.GuardarEntradas);
+        if (!aceita)
+            return new(Desfecho.Ignorado, nota.Direcao == Direcao.Entrada
+                ? "nota de entrada (guardar entradas está desligado)"
+                : $"emitente {nota.CnpjEmitente} não é o seu CNPJ");
 
         var existia = _repo.ObterNota(nota.ChaveAcesso)?.Status == StatusNota.Baixado;
         nota.CaminhoXmlLocal = _storage.SalvarDocumento(nota.Tipo, nota.ChaveAcesso, nota.DataEmissao, dados);
         _repo.SalvarNotaCompleta(nota);
-        return new(Desfecho.Importado, $"{TipoDoc.Rotulo(nota.Tipo)} {nota.NumeroNota}", Novo: !existia);
+        return new(Desfecho.Importado, $"{TipoDoc.Rotulo(nota.Tipo)} {nota.NumeroNota}" + (nota.Direcao == Direcao.Entrada ? " (entrada)" : ""), Novo: !existia && nota.Direcao != Direcao.Entrada);
     }
 
     public ResultadoImportacao ImportarXmls(string pasta, bool incluirOutrosCnpjs)

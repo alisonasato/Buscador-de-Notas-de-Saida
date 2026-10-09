@@ -59,6 +59,12 @@ public class Configuracao
     /// <summary>Aceita notas/eventos cujo emitente não é o CNPJ configurado.</summary>
     public bool EntradaAceitarOutrosCnpjs { get; set; }
 
+    /// <summary>
+    /// Guarda também os documentos em que o CNPJ é o destinatário/tomador (notas de ENTRADA), quando vierem da distribuição
+    /// ou de arquivos importados. Ficam separadas das saídas (filtro "Direção") e fora do faturamento.
+    /// </summary>
+    public bool GuardarEntradas { get; set; } = true;
+
     public string PastaXml { get; set; } = "./xmls";
     public string BancoSqlite { get; set; } = "./notas.db";
     public int EsperaSemNovosMinutos { get; set; } = 90;
@@ -151,6 +157,7 @@ public class Configuracao
     public void AplicarPreferencias(Repositorio repo)
     {
         if (repo.ObterPref("cufAutor") is { } uf && (uf == "" || UfValida(uf))) CUFAutor = uf;
+        if (bool.TryParse(repo.ObterPref("guardarEntradas"), out var ge)) GuardarEntradas = ge;
         if (bool.TryParse(repo.ObterPref("distribuirCte"), out var dc)) DistribuirCte = dc;
         if (bool.TryParse(repo.ObterPref("distribuirMdfe"), out var dm)) DistribuirMdfe = dm;
         if (repo.ObterPref("cnpj") is { } c && Documento.CnpjValido(c)) Cnpj = new string(c.Where(char.IsDigit).ToArray());

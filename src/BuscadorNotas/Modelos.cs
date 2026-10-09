@@ -7,6 +7,18 @@ public static class StatusNota
     public const string ResumoApenas = "RESUMO";               // só resNFe (sem XML completo)
     public const string ConsultadaSemXml = "CONSULTADA_SEM_XML"; // situação obtida via consulta, sem XML
     public const string Erro = "ERRO";
+    public const string Indisponivel = "INDISPONIVEL";         // a Sefaz não devolveu o XML ao ser consultada pela chave
+}
+
+/// <summary>Em que papel o CNPJ configurado aparece no documento.</summary>
+public static class Direcao
+{
+    public const string Saida = "SAIDA", Entrada = "ENTRADA", Outra = "OUTRA";
+    public static readonly string[] Todas = { Saida, Entrada, Outra };
+
+    /// <summary>Saída = você é o emitente; entrada = você é o destinatário/tomador; outra = nenhum dos dois.</summary>
+    public static string De(NotaSaida n, string cnpj) =>
+        cnpj.Length != 14 || n.CnpjEmitente == cnpj ? Saida : n.CnpjCpfDestinatario == cnpj ? Entrada : Outra;
 }
 
 /// <summary>Tipos de documento fiscal tratados. NFE e NFCE compartilham o layout; os demais têm leitor próprio.</summary>
@@ -31,6 +43,9 @@ public class NotaSaida
 {
     /// <summary>NFE | NFCE | CTE | MDFE | CFE | NFSE (ver <see cref="TipoDoc"/>).</summary>
     public string Tipo { get; set; } = TipoDoc.Nfe;
+    /// <summary>SAIDA | ENTRADA | OUTRA (ver <see cref="BuscadorNotas.Direcao"/>).</summary>
+    public string Direcao { get; set; } = BuscadorNotas.Direcao.Saida;
+    public string? NomeEmitente { get; set; }
     public string ChaveAcesso { get; set; } = "";
     public string? CnpjEmitente { get; set; }
     public string? NumeroNota { get; set; }
@@ -69,6 +84,8 @@ public class FiltroBusca
     public string? Xml { get; set; }
     /// <summary>NFE | NFCE | CTE | MDFE | CFE | NFSE.</summary>
     public string? Tipo { get; set; }
+    /// <summary>SAIDA | ENTRADA | OUTRA; vazio = todas.</summary>
+    public string? Direcao { get; set; }
 }
 
 public record ImportacaoRegistro(string Quando, string Arquivo, string Resultado, string? Detalhe);
@@ -79,7 +96,7 @@ public record ContagemTipo(string Tipo, int Quantidade, decimal Valor);
 
 /// <param name="NotasNoMes">Documentos do mês, exceto cancelados e exceto MDF-e (manifesto de transporte, não é nota de faturamento).</param>
 /// <param name="PorTipo">Quantidade e valor por tipo no mês (cancelados excluídos; o valor do MDF-e é o da carga, não faturamento).</param>
-public record ResumoDashboard(string Mes, int NotasNoMes, decimal ValorNoMes, int XmlBaixados, int XmlPendentes, int Total, List<ContagemTipo> PorTipo);
+public record ResumoDashboard(string Mes, int NotasNoMes, decimal ValorNoMes, int XmlBaixados, int XmlPendentes, int Total, List<ContagemTipo> PorTipo, int TotalEntradas);
 
 public record LogSincronizacao(long Id, string IniciadoEm, string? FimEm, string Origem, string? Resultado, int NovasNotas, string? Mensagem);
 

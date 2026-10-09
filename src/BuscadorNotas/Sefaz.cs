@@ -112,7 +112,11 @@ public class SefazDistribuicao
     public string? UltimaRequisicao { get; private set; }
 
     /// <summary>distDFeInt: tpAmb, [cUFAutor], CNPJ, distNSU/ultNSU (nesta ordem). cUFAutor só entra se for uma UF válida.</summary>
-    public static XElement MontarDistDFeInt(Configuracao cfg, string ultNsu, ServicoDistribuicao? servico = null)
+    public static XElement MontarDistDFeInt(Configuracao cfg, string ultNsu, ServicoDistribuicao? servico = null) =>
+        MontarDistDFeInt(cfg, ultNsu, servico, null);
+
+    /// <param name="chave">Se informada, consulta essa chave (consChNFe) em vez de ler por NSU (distNSU).</param>
+    public static XElement MontarDistDFeInt(Configuracao cfg, string ultNsu, ServicoDistribuicao? servico, string? chave)
     {
         servico ??= ServicosDistribuicao.Nfe(cfg);
         XNamespace ns = servico.NsMsg;
@@ -120,8 +124,10 @@ public class SefazDistribuicao
             new XAttribute("versao", servico.Versao),
             new XElement(ns + "tpAmb", cfg.Ambiente));
         if (Configuracao.UfValida(cfg.CUFAutorEfetivo)) el.Add(new XElement(ns + "cUFAutor", cfg.CUFAutorEfetivo));
-        el.Add(new XElement(ns + "CNPJ", cfg.Cnpj),
-               new XElement(ns + "distNSU", new XElement(ns + "ultNSU", ultNsu.PadLeft(15, '0'))));
+        el.Add(new XElement(ns + "CNPJ", cfg.Cnpj));
+        el.Add(chave == null
+            ? new XElement(ns + "distNSU", new XElement(ns + "ultNSU", ultNsu.PadLeft(15, '0')))
+            : new XElement(ns + "consChNFe", new XElement(ns + "chNFe", chave)));
         return el;
     }
 
@@ -130,6 +136,18 @@ public class SefazDistribuicao
         if (string.IsNullOrWhiteSpace(_servico.Url))
             throw new InvalidOperationException($"URL do serviço de distribuição de {_servico.Rotulo} não configurada (veja o Portal e preencha no appsettings.json).");
         var msg = MontarDistDFeInt(_cfg, ultNsu, _servico);
+        UltimaRequisicao = msg.ToString(SaveOptions.DisableFormatting);
+        XNamespace wsdl = _servico.NsWsdl;
+        var resp = await SefazHttp.EnviarSoapAsync(_http, _servico.Url, _cfg.Soap12, wsdl,
+            _servico.Operacao, _servico.ElementoDados, msg, ct);
+        return InterpretarRetorno(resp);
+    }
+
+    /// <summary>EXPERIMENTAL: pede à distribuição o documento de uma chave (consChNFe). Layout de memória; não testado na Sefaz real.</summary>
+    public async Task<RetornoDistribuicao> ConsultarPorChaveAsync(string chave, CancellationToken ct)
+    {
+        if (!NfeXml.ChaveValida(chave)) throw new ArgumentException("Chave de acesso inválida.", nameof(chave));
+        var msg = MontarDistDFeInt(_cfg, "0", _servico, chave);
         UltimaRequisicao = msg.ToString(SaveOptions.DisableFormatting);
         XNamespace wsdl = _servico.NsWsdl;
         var resp = await SefazHttp.EnviarSoapAsync(_http, _servico.Url, _cfg.Soap12, wsdl,
