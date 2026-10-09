@@ -63,6 +63,12 @@ public class Configuracao
     public string BancoSqlite { get; set; } = "./notas.db";
     public int EsperaSemNovosMinutos { get; set; } = 90;
     public int EsperaConsumoIndevidoMinutos { get; set; } = 65;
+
+    /// <summary>
+    /// Intervalo mínimo entre consultas quando a anterior chegou ao fim do acervo (cStat 137, ou 138 com ultNSU = maxNSU).
+    /// Consultar de novo antes disso faz a Sefaz responder 656 (consumo indevido) e bloquear o CNPJ. Padrão: 60 min.
+    /// </summary>
+    public int IntervaloMinimoMinutos { get; set; } = 60;
     public int PausaEntreRequisicoesSegundos { get; set; } = 2;
 
     /// <summary>Endereço do servidor web (comando <c>serve</c>). Fora de loopback exige <see cref="ApiToken"/>.</summary>

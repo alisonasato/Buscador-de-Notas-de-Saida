@@ -13,7 +13,7 @@ const string Ajuda = """
                                   Backup do banco (consistente, online) + cópia incremental dos XMLs. Padrão: PastaBackup, 14 backups.
       serve [--abrir] [--log-arquivo] [--url http://127.0.0.1:5080]
                                   Sobe a interface web e a API HTTP (/api). Veja ApiUrl/ApiToken em appsettings.json.
-      sync [--loop]               Robô de NSU (nfeDistDFeInteresse). Com --loop roda continuamente.
+      sync [--loop] [--forcar]    Robô de NSU (nfeDistDFeInteresse). Com --loop roda continuamente.
       sync --desde-nsu N          Volta o NSU salvo para N e sincroniza (reprocessa histórico; operação idempotente).
       sync --diagnostico [--max-paginas N] [--nsu-inicial N] [--servico nfe|cte|mdfe]
                                   Teste: lista em que papel (emitente/destinatário) seu CNPJ aparece, sem gravar nada.
@@ -85,6 +85,12 @@ try
             break;
 
         case "sync":
+            if (!resto.Contains("--forcar") && robo.EsperaRestante() is { } espera)
+            {
+                Console.Error.WriteLine($"Ainda é cedo para consultar a Sefaz: liberado às {espera.LiberadoEm.LocalDateTime:HH:mm} (faltam {Math.Ceiling(espera.Restante.TotalMinutes):0} min).");
+                Console.Error.WriteLine("Consultar antes disso causa bloqueio (erro 656). Use --forcar para ignorar este aviso por sua conta e risco.");
+                return 3;
+            }
             if (resto.Contains("--diagnostico"))
                 await robo.DiagnosticarAsync(
                     int.Parse(Opcao(resto, "--max-paginas") ?? "20", CultureInfo.InvariantCulture),

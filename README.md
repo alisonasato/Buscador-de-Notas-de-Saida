@@ -82,6 +82,10 @@ Defina `PastaEntrada` no `appsettings.json` e rode `serve`: XMLs, ZIPs de XMLs, 
 
 Serviço do Windows, logs por dia e backup agendado: veja **[docs/instalacao-windows.md](docs/instalacao-windows.md)** (`deploy/instalar.ps1`). Comando de backup: `BuscadorNotas backup --destino D:\Backups\Buscador`.
 
+## Erro 656 "Consumo indevido" na sincronização
+
+É um **limite de uso** da Sefaz, não um defeito: depois de uma consulta sem novidades (137) ou que chegou ao fim do acervo (138), uma nova consulta em menos de 1 hora é recusada com 656 e o CNPJ fica bloqueado por um tempo. O programa respeita isso: depois dessas consultas o botão "Sincronizar agora" fica desativado até o horário liberado (`IntervaloMinimoMinutos`, padrão 60), o agendador também espera, e na linha de comando o `sync` recusa com aviso (`--forcar` ignora, por sua conta e risco). Depois de um 656 a espera é de `EsperaConsumoIndevidoMinutos` (65) e vale mesmo se você fechar e abrir o programa. **Não clique repetidamente, não reinicie para "destravar" e não rode `sync --diagnostico` durante a espera**: o bloqueio é na Sefaz e cada tentativa pode prolongá-lo.
+
 ## Erro 215 "Falha no esquema XML" na sincronização
 
 Significa que a Sefaz recebeu o pedido (certificado e conexão estão ok) mas recusou o formato. O `cUFAutor` do guia original (`91`) não é uma UF válida e agora é ignorado: informe a **UF da empresa** em *Configurações* (ou `"CUFAutor": "35"` no `appsettings.json`, código IBGE de 2 dígitos). Sem UF configurada, o programa tenta inferi-la das chaves já importadas e, se não conseguir, omite o campo. O pedido enviado é impresso na janela/log (`Requisição enviada: ...`) para diagnóstico.

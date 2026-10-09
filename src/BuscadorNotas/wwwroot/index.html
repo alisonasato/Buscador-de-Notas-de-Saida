@@ -581,16 +581,22 @@ document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("#drawe
    - GET /api/sync/status ao carregar e após cada evento relevante;
    - EventSource em /api/sync/events para progresso em tempo real.
    O aviso "tudo em dia" é derivado: idle + último resultado 137 + não dispensado.                */
-let _tick;
+let _tick, _lib;
 function setPillSefaz(cor, txt) { $("#pill-sefaz-dot").className = `h-2 w-2 rounded-full ${cor}`; $("#pill-sefaz-txt").textContent = txt; }
 function renderSync() {
   const s = S.sync; if (!s) return;
   const e = s.estado, b = $("#sync-banner"), btn = $("#btn-sync"), pb = $("#topbar-progress");
-  const vazio = e === "idle" && s.ultimoResultado?.cStat === "137" && !S.bannerDispensado;
+  const vazio = e === "idle" && ["137", "138"].includes(s.ultimoResultado?.cStat) && !S.bannerDispensado && s.liberadoEm && new Date(s.liberadoEm).getTime() > Date.now();
   const pct = s.progresso?.percentual ?? 0;
   clearInterval(_tick);
 
-  btn.disabled = e === "running" || e === "blocked";
+  // Depois de uma consulta que esgotou o acervo, a Sefaz só aceita a próxima após 1 h (senão responde 656)
+  const liberado = s.liberadoEm ? new Date(s.liberadoEm).getTime() : 0;
+  const aguardando = liberado > Date.now();
+  clearTimeout(_lib);
+  if (aguardando) _lib = setTimeout(atualizarStatus, liberado - Date.now() + 1500);
+  btn.disabled = e === "running" || e === "blocked" || aguardando;
+  btn.title = aguardando ? `A Sefaz só aceita nova consulta a partir das ${new Date(liberado).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}. Consultar antes causa bloqueio.` : "";
   $("#btn-sync-txt").textContent = e === "running" ? "Sincronizando…" : "Sincronizar agora";
   $("#btn-sync svg").classList.toggle("animate-spin", e === "running");
   pb.classList.toggle("hidden", e !== "running"); $("#topbar-progress-fill").style.width = pct + "%";
@@ -631,7 +637,10 @@ function renderSync() {
       <button class="btn-ghost" id="btn-ir-config">Abrir configurações</button><button class="btn-primary" id="btn-retry">Tentar de novo</button></div>`;
     $("#btn-retry").onclick = iniciarSync; $("#btn-ir-config").onclick = () => ir("config");
   } else if (vazio) {
-    b.innerHTML = `<div class="flex items-center gap-3 text-sm">${icon("check", "h-5 w-5 text-emerald-600")}<p><strong>Tudo em dia.</strong> Nenhuma nota nova na SEFAZ${s.proximaExecucao ? `. Próxima consulta automática: ${dataHora(s.proximaExecucao)}` : ""}.</p><button class="ml-auto icon-btn" id="btn-dispensar" aria-label="Dispensar aviso">✕</button></div>`;
+    const hora = new Date(s.liberadoEm).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+    const r = s.ultimoResultado;
+    const txt = r.cStat === "137" ? "<strong>Tudo em dia.</strong> Nenhuma nota nova na SEFAZ." : `<strong>Consulta concluída</strong>: ${r.novasNotas} nota(s) nova(s).`;
+    b.innerHTML = `<div class="flex items-center gap-3 text-sm">${icon("check", "h-5 w-5 text-emerald-600")}<p>${txt} A próxima consulta é liberada às <strong>${hora}</strong> (a SEFAZ bloqueia consultas repetidas em menos de 1 hora).</p><button class="ml-auto icon-btn" id="btn-dispensar" aria-label="Dispensar aviso">✕</button></div>`;
     $("#btn-dispensar").onclick = () => { S.bannerDispensado = true; renderSync(); };
   }
 }

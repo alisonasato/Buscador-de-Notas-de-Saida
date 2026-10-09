@@ -164,4 +164,54 @@ public class DistribuicaoExtraTestes
         Assert.Equal("656", r.CStat);
         Assert.False(sefaz.Pedidos.ContainsKey("cte"));
     }
+
+    // ---------------- intervalo mínimo entre consultas (evita o 656 provocado por nós mesmos) ----------------
+
+    [Fact]
+    public async Task Depois_de_137_a_proxima_consulta_so_e_liberada_apos_o_intervalo_minimo()
+    {
+        var (f, sefaz, robo) = await Montar(cte: false, mdfe: false);
+        await using var _f = f; await using var _s = sefaz;
+        Assert.Null(robo.EsperaRestante());                                   // nunca consultou: livre
+
+        sefaz.Respostas["nfe"] = SefazFalsa.Resposta("137", "nada");
+        await robo.ExecutarCicloComAsync(new HttpClient(), null, default);
+
+        var espera = robo.EsperaRestante()!.Value;
+        Assert.InRange(espera.Restante.TotalMinutes, 59, 60);
+
+        // a tela/agendador recusam em vez de arriscar o 656
+        var sync = new SyncService(f.Cfg, f.Repo, robo);
+        var motivo = sync.TentarIniciar("manual");
+        Assert.Contains("liberada às", motivo);
+        Assert.Single(sefaz.Pedidos);                                         // nenhuma consulta nova foi feita
+        var status = System.Text.Json.JsonSerializer.SerializeToElement(sync.Status(), new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+        Assert.NotEqual(System.Text.Json.JsonValueKind.Null, status.GetProperty("liberadoEm").ValueKind);
+
+        // passado o intervalo, libera
+        Assert.Null(robo.EsperaRestante(DateTimeOffset.Now.AddMinutes(61)));
+    }
+
+    [Fact]
+    public async Task Depois_de_656_a_espera_e_a_de_consumo_indevido()
+    {
+        var (f, sefaz, robo) = await Montar(cte: false, mdfe: false);
+        await using var _f = f; await using var _s = sefaz;
+        f.Repo.SalvarPref("ultimaConsulta", $"{DateTimeOffset.Now.AddMinutes(-61):o}|656");
+        var espera = robo.EsperaRestante()!.Value;                            // 65 - 61 = 4 min
+        Assert.InRange(espera.Restante.TotalMinutes, 3, 4.1);
+
+        f.Repo.SalvarPref("ultimaConsulta", $"{DateTimeOffset.Now.AddMinutes(-61):o}|137");
+        Assert.Null(robo.EsperaRestante());                                   // 137 há 61 min: já pode
+    }
+
+    [Fact]
+    public async Task Erro_de_formato_ou_cancelamento_nao_inicia_espera()
+    {
+        var (f, sefaz, robo) = await Montar(cte: false, mdfe: false);
+        await using var _f = f; await using var _s = sefaz;
+        sefaz.Respostas["nfe"] = SefazFalsa.Resposta("215", "Rejeicao: Falha no esquema XML");
+        await Assert.ThrowsAsync<InvalidOperationException>(() => robo.ExecutarCicloComAsync(new HttpClient(), null, default));
+        Assert.Null(robo.EsperaRestante());                                   // rejeição de formato não conta como consulta bem-sucedida
+    }
 }

@@ -9,8 +9,10 @@ namespace BuscadorNotas;
 public static class Diagnostico
 {
     public static async Task ExecutarAsync(Configuracao cfg, SefazDistribuicao dist, int maxPaginas,
-        string nsuInicial, CancellationToken ct)
+        string nsuInicial, CancellationToken ct, Action<string>? aoEsgotar = null)
     {
+        string? ultimoCStat = null;
+        var acervoEsgotado = false;
         var porSchema = new Dictionary<string, int>();
         int outrosTiposComoEmitente = 0, eventosCancelamento = 0, outrosEventos = 0, totalDocs = 0, nfeComoEmitente = 0, nfeComoDestinatario = 0, nfeOutroPapel = 0, resumoComoEmitente = 0, semLeitura = 0;
         var exemplosEmitente = new List<string>();
@@ -22,6 +24,7 @@ public static class Diagnostico
             paginas++;
             var ret = await dist.ConsultarAsync(ultNsu, ct);
             Console.WriteLine($"Página {paginas}: cStat={ret.CStat} ({ret.XMotivo}) ultNSU={ret.UltNsu} maxNSU={ret.MaxNsu} docs={ret.Documentos.Count}");
+            ultimoCStat = ret.CStat;
             if (ret.CStat != "138") break; // 137 = nada; 656 = bloqueio; outros = erro
 
             foreach (var d in ret.Documentos)
@@ -76,9 +79,12 @@ public static class Diagnostico
             }
 
             ultNsu = ret.UltNsu;
-            if (string.CompareOrdinal(ret.UltNsu, ret.MaxNsu) >= 0) break;
+            if (string.CompareOrdinal(ret.UltNsu, ret.MaxNsu) >= 0) { acervoEsgotado = true; break; }
             await Task.Delay(TimeSpan.FromSeconds(cfg.PausaEntreRequisicoesSegundos), ct);
         }
+
+        // Chegou ao fim do acervo (ou foi bloqueado): a próxima consulta só vale depois do intervalo mínimo.
+        if (ultimoCStat is "137" or "656" || (ultimoCStat == "138" && acervoEsgotado)) aoEsgotar?.Invoke(ultimoCStat!);
 
         Console.WriteLine();
         Console.WriteLine($"=== Resumo do diagnóstico (CNPJ {cfg.Cnpj}; {paginas} página(s); último NSU lido {ultNsu}) ===");

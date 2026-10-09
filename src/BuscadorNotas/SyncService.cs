@@ -75,6 +75,8 @@ public class SyncService
                 retomarEm = _retomarEm,
                 erro = _erro == null ? null : new { codigo = _erro.Value.Codigo, mensagem = _erro.Value.Mensagem },
                 ultimoResultado = _ultimo == null ? null : new { cStat = _ultimo.Value.CStat, novasNotas = _ultimo.Value.Novas, fimEm = _ultimo.Value.FimEm },
+                // Antes disso a Sefaz responderia 656: a tela mantém o botão desativado até lá
+                liberadoEm = _robo.EsperaRestante() is { } e ? e.LiberadoEm : (DateTimeOffset?)null,
                 proximaExecucao = _cfg.SincronizacaoAutomatica && _cfg.EsperaSemNovosMinutos > 0 ? _proxima : null,
                 automatica = _cfg.SincronizacaoAutomatica,
                 intervaloMinutos = _cfg.EsperaSemNovosMinutos,
@@ -107,6 +109,8 @@ public class SyncService
             ExpirarBloqueio();
             if (_estado == "running") return "Já existe uma sincronização em andamento.";
             if (_estado == "blocked") return "A Sefaz pediu para aguardar; tente novamente após o fim da espera.";
+            if (_robo.EsperaRestante() is { } espera)
+                return $"Nova consulta liberada às {espera.LiberadoEm.LocalDateTime:HH:mm} (daqui a {Math.Ceiling(espera.Restante.TotalMinutes):0} min): consultar a Sefaz antes disso causa bloqueio (erro 656).";
             try { _cfg.ValidarParaSefaz(); }
             catch (InvalidOperationException ex) { Registrar(origem, "CONFIGURACAO_INVALIDA", ex.Message); return null; }
 

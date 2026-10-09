@@ -40,7 +40,8 @@ public partial class Robo
         ResolverUf();
         using var cert = CertificadoService.ObterCertificado(_cfg.CertificadoPfx, _cfg.SenhaCertificado);
         using var http = SefazHttp.CriarClient(cert);
-        await Diagnostico.ExecutarAsync(_cfg, new SefazDistribuicao(http, _cfg, ServicosDistribuicao.Por(servico, _cfg)), maxPaginas, nsuInicial, ct);
+        await Diagnostico.ExecutarAsync(_cfg, new SefazDistribuicao(http, _cfg, ServicosDistribuicao.Por(servico, _cfg)), maxPaginas, nsuInicial, ct,
+            aoEsgotar: servico is null or "" or "nfe" or "NFE" ? RegistrarFimDeConsulta : null);
     }
 
     /// <summary>Roda o robô de NSU. Com <paramref name="repetir"/>, fica em loop respeitando o throttling.</summary>
@@ -65,6 +66,35 @@ public partial class Robo
         return await ExecutarCicloComAsync(http, progresso, ct);
     }
 
+    // ---------- Limite de consultas da Sefaz ----------
+
+    private const string PrefUltimaConsulta = "ultimaConsulta";
+
+    /// <summary>Guarda quando e como terminou a última consulta que esgotou o acervo (ou foi bloqueada), para respeitar o intervalo mínimo.</summary>
+    public void RegistrarFimDeConsulta(string cStat) =>
+        _repo.SalvarPref(PrefUltimaConsulta, $"{DateTimeOffset.Now:o}|{cStat}");
+
+    /// <summary>
+    /// Se ainda é cedo para consultar a Sefaz de novo (após 137/138 sem mais nada a baixar: IntervaloMinimoMinutos; após 656:
+    /// EsperaConsumoIndevidoMinutos), devolve quanto falta e quando será liberado; senão null. Vale para todo o programa
+    /// (tela, agendador e linha de comando), mesmo depois de reiniciar.
+    /// </summary>
+    public (TimeSpan Restante, DateTimeOffset LiberadoEm)? EsperaRestante(DateTimeOffset? agora = null)
+    {
+        var partes = (_repo.ObterPref(PrefUltimaConsulta) ?? "").Split('|');
+        if (partes.Length != 2 || !DateTimeOffset.TryParse(partes[0], out var fim)) return null;
+        var minutos = partes[1] switch
+        {
+            "656" => _cfg.EsperaConsumoIndevidoMinutos,
+            "137" or "138" => _cfg.IntervaloMinimoMinutos,
+            _ => 0,
+        };
+        if (minutos <= 0) return null;
+        var libera = fim.AddMinutes(minutos);
+        var hoje = agora ?? DateTimeOffset.Now;
+        return libera > hoje ? (libera - hoje, libera) : null;
+    }
+
     /// <summary>
     /// NF-e primeiro; depois, se ligados, CT-e e MDF-e. Uma falha nos serviços adicionais (experimentais) nunca derruba
     /// o resultado da NF-e: vira um aviso na mensagem do resultado.
@@ -73,6 +103,7 @@ public partial class Robo
     {
         var nfe = ServicosDistribuicao.Nfe(_cfg);
         var r = await UmCicloAsync(new SefazDistribuicao(http, _cfg, nfe), nfe, progresso, ct);
+        if (r.CStat is "137" or "138" or "656") RegistrarFimDeConsulta(r.CStat);
         if (r.CStat is "CANCELADO" or "656") return r; // não insiste em outros serviços se o usuário cancelou ou a Sefaz pediu espera
 
         var servicos = new List<ServicoDistribuicao>();
