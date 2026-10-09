@@ -22,6 +22,31 @@ dotnet run --project src/BuscadorNotas -- buscar --de 2024-10-01 --ate 2024-10-3
 dotnet test
 ```
 
+## Interface web e API
+
+```bash
+dotnet run --project src/BuscadorNotas -- serve            # http://127.0.0.1:5080
+dotnet run --project src/BuscadorNotas -- serve --url http://127.0.0.1:8080
+```
+
+O comando `serve` sobe a interface (`src/BuscadorNotas/wwwroot`) e a API (`/api`) no mesmo processo, usando o mesmo banco SQLite e a mesma pasta de XMLs da linha de comando.
+
+| Rota | Função |
+|---|---|
+| `GET /api/notas?busca&de&ate&situacao&xml&pagina&tamanho` | lista paginada (`itens`, `total`, `pagina`, `totalPaginas`) |
+| `GET /api/notas/{chave}` · `GET /api/notas/{chave}/xml` | detalhe · download do XML |
+| `POST /api/notas/zip` `{"chaves":[...]}` | ZIP dos XMLs disponíveis (cabeçalhos `X-Incluidas`, `X-Sem-Xml`) |
+| `GET /api/notas/export.csv?...` | CSV do resultado filtrado |
+| `GET /api/dashboard?mes=aaaa-mm` | KPIs, histórico e estado da sincronização |
+| `GET /api/sync/status` · `POST /api/sync/start` · `POST /api/sync/cancel` · `GET /api/sync/events` (SSE) | sincronização |
+| `GET/PUT /api/config` · `GET/POST /api/certificado` | configurações e certificado A1 |
+
+**Segurança.** Sem `ApiToken`, o servidor só atende `localhost` (valida o cabeçalho `Host`) e recusa `ApiUrl` fora de loopback. Com `ApiToken`, toda chamada a `/api` exige `Authorization: Bearer <token>` (o endpoint SSE também aceita `?token=`, porque o navegador não envia cabeçalhos em `EventSource`; evite expor esse endereço em logs). Requisições que alteram estado são recusadas se o cabeçalho `Origin` não for o próprio servidor. **Não há login por usuário**; se for expor na rede, use HTTPS (por exemplo, atrás de um proxy reverso) e um token forte.
+
+**Certificado pela interface.** O `.pfx` é salvo ao lado do banco (`certificado.pfx`) e a **senha fica só na memória** do processo: após reiniciar, defina `NFE_PFX_SENHA` ou envie o certificado novamente.
+
+**Sincronização.** Uma execução por vez. A Sefaz respondendo 656 coloca o servidor em espera (`blocked`) por `EsperaConsumoIndevidoMinutos`, e isso sobrevive a reinício. A sincronização automática vem desligada; ligue na tela de configurações (intervalo mínimo de 60 min).
+
 ## ⚠️ Pontos a verificar antes de usar em produção
 
 Este código **não foi compilado nem executado** no ambiente em que foi escrito (sem .NET SDK/Sefaz disponíveis). Rode `dotnet build` e `dotnet test` primeiro. Além disso, há pontos sobre os quais não tenho certeza e que dependem da documentação oficial vigente (Portal Nacional da NF-e):

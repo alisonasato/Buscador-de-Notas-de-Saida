@@ -51,4 +51,14 @@ public class Armazenamento
             File.Copy(arquivoOrigem, destino, overwrite: true);
         return destino;
     }
+
+    /// <summary>Caminho completo do arquivo se ele estiver dentro da pasta de XMLs e existir; senão null (evita path traversal).</summary>
+    public string? ResolverSeguro(string? caminho)
+    {
+        if (string.IsNullOrWhiteSpace(caminho)) return null;
+        var raiz = Path.GetFullPath(_raiz).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var completo = Path.GetFullPath(caminho);
+        var cmp = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        return completo.StartsWith(raiz, cmp) && File.Exists(completo) ? completo : null;
+    }
 }

@@ -1,6 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
-  content: ["./index.html"],
+  content: ["./index.html", "../src/BuscadorNotas/wwwroot/index.html"],
   darkMode: "class",
   theme: {
     extend: {

@@ -2,6 +2,11 @@ using System.Xml.Linq;
 
 namespace BuscadorNotas;
 
+public record ProgressoSync(int Pagina, string UltNsu, string MaxNsu, int NovasNotas);
+
+/// <param name="CStat">138 (docs), 137 (nada novo), 656 (bloqueio) ou CANCELADO.</param>
+public record ResultadoCiclo(string CStat, int NovasNotas, TimeSpan Espera, string? Mensagem);
+
 public partial class Robo
 {
     private readonly Configuracao _cfg;
@@ -28,27 +33,32 @@ public partial class Robo
     /// <summary>Roda o robô de NSU. Com <paramref name="repetir"/>, fica em loop respeitando o throttling.</summary>
     public async Task SincronizarAsync(bool repetir, CancellationToken ct)
     {
-        _cfg.ValidarParaSefaz();
-        using var cert = CertificadoService.ObterCertificado(_cfg.CertificadoPfx, _cfg.SenhaCertificado);
-        using var http = SefazHttp.CriarClient(cert);
-        var dist = new SefazDistribuicao(http, _cfg);
-
         do
         {
-            var espera = await UmCicloAsync(dist, ct);
+            var r = await ExecutarCicloAsync(null, ct);
             if (!repetir) break;
-            Console.WriteLine($"Aguardando {espera.TotalMinutes:0} min até a próxima consulta...");
-            await Task.Delay(espera, ct);
+            Console.WriteLine($"Aguardando {r.Espera.TotalMinutes:0} min até a próxima consulta...");
+            await Task.Delay(r.Espera, ct);
         } while (!ct.IsCancellationRequested);
     }
 
-    /// <summary>Consulta até alcançar maxNSU. Retorna quanto esperar antes do próximo ciclo.</summary>
-    private async Task<TimeSpan> UmCicloAsync(SefazDistribuicao dist, CancellationToken ct)
+    /// <summary>Um ciclo completo: consulta até alcançar maxNSU (ou até a Sefaz pedir para parar).</summary>
+    public async Task<ResultadoCiclo> ExecutarCicloAsync(Action<ProgressoSync>? progresso, CancellationToken ct)
+    {
+        _cfg.ValidarParaSefaz();
+        using var cert = CertificadoService.ObterCertificado(_cfg.CertificadoPfx, _cfg.SenhaCertificado);
+        using var http = SefazHttp.CriarClient(cert);
+        return await UmCicloAsync(new SefazDistribuicao(http, _cfg), progresso, ct);
+    }
+
+    private async Task<ResultadoCiclo> UmCicloAsync(SefazDistribuicao dist, Action<ProgressoSync>? progresso, CancellationToken ct)
     {
         var ultNsu = _repo.ObterUltimoNsu(_cfg.Cnpj);
+        int pagina = 0, novas = 0;
 
         while (!ct.IsCancellationRequested)
         {
+            pagina++;
             Console.WriteLine($"Consultando a partir do NSU {ultNsu}...");
             var ret = await dist.ConsultarAsync(ultNsu, ct);
             Console.WriteLine($"  cStat={ret.CStat} ({ret.XMotivo}) ultNSU={ret.UltNsu} maxNSU={ret.MaxNsu} docs={ret.Documentos.Count}");
@@ -56,38 +66,40 @@ public partial class Robo
             switch (ret.CStat)
             {
                 case "138": // documentos localizados
-                    foreach (var d in ret.Documentos) ProcessarDocumento(d);
+                    foreach (var d in ret.Documentos) if (ProcessarDocumento(d)) novas++;
                     _repo.SalvarUltimoNsu(_cfg.Cnpj, ret.UltNsu);
                     ultNsu = ret.UltNsu;
+                    progresso?.Invoke(new ProgressoSync(pagina, ret.UltNsu, ret.MaxNsu, novas));
                     if (string.CompareOrdinal(ret.UltNsu, ret.MaxNsu) >= 0)
-                        return TimeSpan.FromMinutes(_cfg.EsperaSemNovosMinutos);
+                        return new ResultadoCiclo("138", novas, TimeSpan.FromMinutes(_cfg.EsperaSemNovosMinutos), ret.XMotivo);
                     await Task.Delay(TimeSpan.FromSeconds(_cfg.PausaEntreRequisicoesSegundos), ct);
                     break;
 
                 case "137": // nenhum documento localizado
                     _repo.SalvarUltimoNsu(_cfg.Cnpj, ret.UltNsu);
-                    return TimeSpan.FromMinutes(_cfg.EsperaSemNovosMinutos);
+                    return new ResultadoCiclo("137", novas, TimeSpan.FromMinutes(_cfg.EsperaSemNovosMinutos), ret.XMotivo);
 
                 case "656": // consumo indevido: bloqueio temporário
                     Console.WriteLine("  Sefaz informou consumo indevido; aguardando antes de tentar de novo.");
                     if (ret.UltNsu != "000000000000000") _repo.SalvarUltimoNsu(_cfg.Cnpj, ret.UltNsu);
-                    return TimeSpan.FromMinutes(_cfg.EsperaConsumoIndevidoMinutos);
+                    return new ResultadoCiclo("656", novas, TimeSpan.FromMinutes(_cfg.EsperaConsumoIndevidoMinutos), ret.XMotivo);
 
                 default:
                     throw new InvalidOperationException($"Retorno inesperado da Sefaz: {ret.CStat} - {ret.XMotivo}");
             }
         }
-        return TimeSpan.Zero;
+        return new ResultadoCiclo("CANCELADO", novas, TimeSpan.Zero, "Sincronização cancelada.");
     }
 
-    private void ProcessarDocumento(DocumentoDistribuido d)
+    /// <summary>Retorna true quando o documento é uma nota de saída nova (ou que ainda não tinha XML).</summary>
+    private bool ProcessarDocumento(DocumentoDistribuido d)
     {
         XDocument doc;
         try { doc = XDocument.Parse(d.Xml); }
         catch (System.Xml.XmlException ex)
         {
             Console.WriteLine($"  NSU {d.Nsu}: XML inválido ({ex.Message}); ignorado.");
-            return;
+            return false;
         }
 
         switch (NfeXml.TipoDocumento(doc))
@@ -96,20 +108,22 @@ public partial class Robo
             case "NFe":
             {
                 var nota = NfeXml.LerNotaCompleta(doc, "NSU");
-                if (nota == null || nota.CnpjEmitente != _cfg.Cnpj) return; // só notas emitidas por nós (saída)
+                if (nota == null || nota.CnpjEmitente != _cfg.Cnpj) return false; // só notas emitidas por nós (saída)
+                var nova = _repo.ObterNota(nota.ChaveAcesso)?.Status != StatusNota.Baixado;
                 nota.CaminhoXmlLocal = _storage.Salvar(nota.ChaveAcesso, d.Xml);
                 _repo.SalvarNotaCompleta(nota);
                 Console.WriteLine($"  NSU {d.Nsu}: nota {nota.NumeroNota} salva.");
-                break;
+                return nova;
             }
             case "resNFe":
             {
                 var nota = NfeXml.LerResumo(doc, "NSU");
-                if (nota == null || nota.CnpjEmitente != _cfg.Cnpj) return;
-                _repo.InserirSeNaoExiste(nota);
-                break;
+                if (nota == null || nota.CnpjEmitente != _cfg.Cnpj) return false;
+                return _repo.InserirSeNaoExiste(nota);
             }
             // eventos (resEvento/procEventoNFe) não são tratados nesta versão
+            default:
+                return false;
         }
     }
 
@@ -133,7 +147,7 @@ public partial class Robo
                     DataEmissao = n.DataDoc,
                     ValorTotal = n.Valor,
                     Status = StatusNota.Pendente,
-                    SituacaoSefaz = n.CodSit == "00" ? null : $"SPED COD_SIT={n.CodSit}",
+                    SituacaoSefaz = $"SPED COD_SIT={n.CodSit}",
                     Origem = "SPED",
                 });
                 if (inserida) novas++;

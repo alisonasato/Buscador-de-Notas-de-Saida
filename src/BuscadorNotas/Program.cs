@@ -7,6 +7,8 @@ const string Ajuda = """
     Uso: BuscadorNotas <comando> [opções]
 
     Comandos:
+      serve [--url http://127.0.0.1:5080]
+                                  Sobe a interface web e a API HTTP (/api). Veja ApiUrl/ApiToken em appsettings.json.
       sync [--loop]               Robô de NSU (nfeDistDFeInteresse). Com --loop roda continuamente.
       sync --diagnostico [--max-paginas N] [--nsu-inicial N]
                                   Teste: lista em que papel (emitente/destinatário) seu CNPJ aparece, sem gravar nada.
@@ -40,11 +42,16 @@ try
 {
     var cfg = Configuracao.Carregar();
     var repo = new Repositorio(cfg.BancoSqlite);
+    cfg.AplicarPreferencias(repo);
     var robo = new Robo(cfg, repo);
     var resto = args.Skip(1).ToArray();
 
     switch (args[0])
     {
+        case "serve":
+            await ApiServer.ServirAsync(cfg, repo, robo, Opcao(resto, "--url") ?? cfg.ApiUrl, cts.Token);
+            break;
+
         case "sync":
             if (resto.Contains("--diagnostico"))
                 await robo.DiagnosticarAsync(

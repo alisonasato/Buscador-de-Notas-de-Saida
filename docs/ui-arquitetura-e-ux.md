@@ -98,13 +98,13 @@ idle ─(agendado ou "Sincronizar agora")─▶ running ─▶ idle   (cStat 138
 {"tipo":"erro","codigo":"CERTIFICADO_INVALIDO","mensagem":"..."}
 ```
 
-## 4. Contrato de API que a interface precisa (ainda não existe)
+## 4. Contrato de API (implementado em `src/BuscadorNotas/Api.cs`)
 
-O backend atual é só linha de comando. Para ligar esta interface falta uma camada HTTP (por exemplo, ASP.NET Core Minimal API no mesmo projeto, reutilizando `Repositorio` e `Robo`):
+Implementado como ASP.NET Core Minimal API no mesmo projeto (`serve`), reutilizando `Repositorio`, `Robo` e `SyncService`. A interface real está em `src/BuscadorNotas/wwwroot/index.html`; `ui-prototipo/` continua sendo a referência de design com dados fictícios.
 
 | Rota | Função | Observação |
 |---|---|---|
-| `GET /api/notas?busca&de&ate&situacao&xml&pagina&tamanho` | lista paginada | hoje `Repositorio.Buscar` só tem `LIMIT`; falta `OFFSET` e total |
+| `GET /api/notas?busca&de&ate&situacao&xml&pagina&tamanho` | lista paginada com total | `Repositorio.BuscarPagina` (LIMIT/OFFSET + COUNT) |
 | `GET /api/notas/{chave}` / `GET /api/notas/{chave}/xml` | detalhe / download | XML só existe se `Status = BAIXADO` |
 | `POST /api/notas/zip` (`{chaves:[…]}`) | ZIP de XMLs selecionados | ignorar e informar as sem XML |
 | `GET /api/notas/export.csv?filtros…` | CSV do resultado | |
@@ -112,11 +112,16 @@ O backend atual é só linha de comando. Para ligar esta interface falta uma cam
 | `GET /api/sync/status` · `POST /api/sync/start` · `POST /api/sync/cancel` · `GET /api/sync/events` | sincronização | `Robo` hoje roda direto no console |
 | `GET/PUT /api/config` · `POST /api/certificado` | configurações | validade do certificado: `X509Certificate2.NotAfter`; senha nunca trafega de volta |
 
-## 5. Lacunas entre a interface e o backend atual (importante)
+### Estados no servidor
 
-- **"Situação: Cancelada"** só será verdadeira quando o sistema processar **eventos** de cancelamento, o que ainda não faz. Hoje só haveria `Autorizada` (cStat 100) e o que vier em `SituacaoSefaz`.
-- **Pill "SEFAZ online/offline"**: não há consulta de status de serviço (`NfeStatusServico`). Na prática ela refletiria o resultado do **último contato** (sucesso, 656, erro), e o texto deve dizer isso.
-- **Notas pendentes** (chave conhecida, sem XML) precisam aparecer com "Baixar XML" desativado, como no protótipo.
-- **KPIs "mês"** dependem de `DataEmissao` preenchida; notas vindas só de `importar-chaves` ainda não têm data até o XML chegar.
-- **Upload de certificado pela web** exige decidir onde guardar o `.pfx` e a senha no servidor (a senha hoje vem da variável de ambiente `NFE_PFX_SENHA`).
-- **Autenticação**: a interface expõe dados fiscais; antes de publicar na rede é preciso login/controle de acesso, que não está desenhado aqui.
+O servidor expõe 4 estados (`idle`, `running`, `blocked`, `error`). O aviso "Tudo em dia" (cStat 137) é derivado na interface: `idle` + último resultado 137 + não dispensado.
+
+## 5. Lacunas que continuam
+
+- **"Situação: Cancelada"** só reflete o que está em `SituacaoSefaz`: cStat 101/135/155 vindo de consulta, ou `COD_SIT` 02/03 do SPED. O sistema ainda **não processa eventos** de cancelamento da distribuição, então uma nota cancelada depois de baixada continua "Autorizada".
+- **Mapeamento do SPED:** `COD_SIT` 00/01/06/07/08 é tratado como "Autorizada" e 04 como "Denegada"; conferir com o Guia Prático da EFD.
+- **Pill "SEFAZ"** mostra o resultado do **último contato** (não há consulta ao `NfeStatusServico`).
+- **Notas pendentes** (chave conhecida, sem XML) aparecem com "Baixar XML" desativado. Notas vindas só de `importar-chaves` não têm data até o XML chegar, então não entram nos totais do mês.
+- **Autenticação:** há token único opcional (`ApiToken`), sem login por usuário.
+- **Certificado pela web:** a senha fica só em memória; após reiniciar é preciso `NFE_PFX_SENHA` ou novo upload.
+- **Executar a API contra a Sefaz real** depende das mesmas verificações do README (SOAP, `cUFAutor`, se a distribuição devolve notas de saída).

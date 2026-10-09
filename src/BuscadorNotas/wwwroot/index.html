@@ -1,0 +1,708 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Notas de Saída</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="app.css" />
+  <script>
+    // Aplica o tema antes de pintar (evita "flash"). localStorage pode falhar: sempre em try/catch.
+    try {
+      const t = localStorage.getItem("tema");
+      const dark = t ? t === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+      document.documentElement.classList.toggle("dark", dark);
+    } catch (e) {}
+  </script>
+</head>
+<body class="bg-slate-50 font-sans text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100">
+
+<a href="#conteudo" class="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded focus:bg-white focus:p-2 dark:focus:bg-slate-800">Ir para o conteúdo</a>
+
+<div class="flex min-h-screen">
+
+  <!-- ============ SIDEBAR (AppShell > Sidebar) ============ -->
+  <aside class="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 md:flex" aria-label="Navegação principal">
+    <div class="mb-6 flex items-center gap-2 px-2">
+      <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-sm font-bold text-white">NS</div>
+      <span class="font-semibold">Notas de Saída</span>
+    </div>
+    <nav class="space-y-1 text-sm" id="nav">
+      <button data-view="dashboard" class="nav-item flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left font-medium"><span data-icon="home"></span>Visão geral</button>
+      <button data-view="notas" class="nav-item flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left font-medium"><span data-icon="file"></span>Notas fiscais</button>
+      <button data-view="config" class="nav-item flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left font-medium"><span data-icon="cog"></span>Configurações</button>
+    </nav>
+    <p class="mt-auto px-2 text-xs text-slate-400">Buscador de Notas de Saída</p>
+  </aside>
+
+  <div class="flex min-w-0 flex-1 flex-col">
+
+    <!-- ============ TOPBAR (AppShell > Topbar > StatusPills) ============ -->
+    <header class="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur dark:border-slate-800 dark:bg-slate-900/90">
+      <div class="flex flex-wrap items-center gap-3 px-4 py-3 md:px-6">
+        <h1 id="titulo-pagina" class="mr-auto text-lg font-semibold">Visão geral</h1>
+
+        <div class="flex flex-wrap items-center gap-2" role="status" aria-label="Estado das conexões">
+          <span id="pill-cert" class="chip bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300" title="Certificado digital A1">
+            <span class="h-2 w-2 rounded-full bg-slate-400"></span>Certificado A1…
+          </span>
+          <span id="pill-sefaz" class="chip bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300" title="Resultado do último contato com a SEFAZ (não é um teste ao vivo do serviço)">
+            <span id="pill-sefaz-dot" class="h-2 w-2 rounded-full bg-slate-400"></span><span id="pill-sefaz-txt">SEFAZ…</span>
+          </span>
+        </div>
+
+        <button id="btn-sync" class="btn-primary"><span data-icon="refresh"></span><span id="btn-sync-txt">Sincronizar agora</span></button>
+        <button id="btn-tema" class="icon-btn" aria-label="Alternar tema claro/escuro" title="Alternar tema"><span data-icon="moon"></span></button>
+      </div>
+
+      <!-- Navegação em abas para telas pequenas (a sidebar só aparece a partir de md) -->
+      <nav class="flex gap-1 overflow-x-auto border-t border-slate-100 px-4 py-1.5 dark:border-slate-800 md:hidden" aria-label="Navegação principal (mobile)">
+        <button data-view="dashboard" class="tab-item shrink-0 rounded-md px-3 py-1.5 text-sm font-medium">Visão geral</button>
+        <button data-view="notas" class="tab-item shrink-0 rounded-md px-3 py-1.5 text-sm font-medium">Notas fiscais</button>
+        <button data-view="config" class="tab-item shrink-0 rounded-md px-3 py-1.5 text-sm font-medium">Configurações</button>
+      </nav>
+
+      <!-- Faixa de progresso fina, sempre visível durante a sincronização (SyncProgressBar) -->
+      <div id="topbar-progress" class="hidden h-0.5 w-full bg-slate-200 dark:bg-slate-800" aria-hidden="true">
+        <div id="topbar-progress-fill" class="h-full w-0 bg-blue-500 transition-all duration-500"></div>
+      </div>
+    </header>
+
+    <main id="conteudo" class="flex min-w-0 flex-1 flex-col gap-6 p-4 md:p-6">
+
+      <!-- ============ SyncStatusBanner (varia por estado) ============ -->
+      <section id="sync-banner" class="card hidden p-4" aria-live="polite"></section>
+
+      <!-- ============ VIEW: DASHBOARD ============ -->
+      <div id="view-dashboard" class="space-y-6">
+        <section aria-label="Resumo" class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" id="kpis"></section>
+
+        <section class="grid gap-4 lg:grid-cols-3">
+          <div class="card p-4 lg:col-span-2">
+            <div class="mb-3 flex items-center justify-between">
+              <h2 class="text-sm font-semibold">Últimas notas</h2>
+              <button class="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400" data-goto="notas">Ver todas</button>
+            </div>
+            <ul id="ultimas" class="divide-y divide-slate-100 dark:divide-slate-800"></ul>
+          </div>
+          <div class="card p-4">
+            <h2 class="mb-3 text-sm font-semibold">Histórico de sincronização</h2>
+            <ol id="historico-sync" class="space-y-3 text-sm"></ol>
+          </div>
+        </section>
+      </div>
+
+      <!-- ============ VIEW: NOTAS ============ -->
+      <div id="view-notas" class="hidden space-y-4">
+
+        <!-- NewNotesBanner: aparece quando a sincronização trouxe notas novas; não reordena a tabela sozinha -->
+        <div id="novas-notas" class="hidden items-center justify-between gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-800 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-200" role="status">
+          <span id="novas-notas-txt"></span>
+          <button id="btn-atualizar-lista" class="font-semibold underline">Atualizar lista</button>
+        </div>
+
+        <!-- FilterBar -->
+        <form id="filtros" class="card grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-6" role="search" aria-label="Filtros de notas">
+          <div class="lg:col-span-2">
+            <label class="label" for="f-busca">Chave, número, nome ou CNPJ</label>
+            <input id="f-busca" class="field" type="search" placeholder="Ex.: 3524… ou Comercial Alfa" autocomplete="off" />
+          </div>
+          <div><label class="label" for="f-de">Emissão de</label><input id="f-de" class="field" type="date" /></div>
+          <div><label class="label" for="f-ate">até</label><input id="f-ate" class="field" type="date" /></div>
+          <div>
+            <label class="label" for="f-sit">Situação na SEFAZ</label>
+            <select id="f-sit" class="field">
+              <option value="">Todas</option><option value="AUTORIZADA">Autorizada</option><option value="CANCELADA">Cancelada</option><option value="DENEGADA">Denegada</option><option value="DESCONHECIDA">Sem informação</option>
+            </select>
+          </div>
+          <div>
+            <label class="label" for="f-xml">XML</label>
+            <select id="f-xml" class="field">
+              <option value="">Todos</option><option value="BAIXADO">Baixado</option><option value="PENDENTE">Pendente</option>
+            </select>
+          </div>
+          <div class="flex items-end gap-2 sm:col-span-2 lg:col-span-6 lg:justify-end">
+            <button type="button" id="btn-limpar" class="btn-ghost">Limpar filtros</button>
+          </div>
+        </form>
+
+        <!-- BulkActionBar (substitui o cabeçalho da lista quando há seleção) + toolbar -->
+        <div class="flex min-h-[2.75rem] flex-wrap items-center gap-2">
+          <p id="contagem" class="mr-auto text-sm text-slate-500 dark:text-slate-400" aria-live="polite"></p>
+          <div id="bulk" class="hidden flex-wrap items-center gap-2">
+            <span id="bulk-txt" class="text-sm font-medium"></span>
+            <button id="btn-zip" class="btn-primary"><span data-icon="download"></span>Baixar XMLs (.zip)</button>
+            <button id="btn-csv-sel" class="btn-ghost"><span data-icon="table"></span>Exportar CSV</button>
+            <button id="btn-desmarcar" class="btn-ghost">Limpar seleção</button>
+          </div>
+          <button id="btn-csv-todos" class="btn-ghost"><span data-icon="table"></span>Exportar resultado (CSV)</button>
+        </div>
+
+        <!-- InvoiceTable -->
+        <div class="card overflow-hidden">
+          <div class="overflow-x-auto">
+            <table class="min-w-full text-sm" aria-busy="false" id="tabela">
+              <caption class="sr-only">Notas fiscais de saída</caption>
+              <thead class="border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/60">
+                <tr>
+                  <th class="th w-10"><input id="chk-todos" type="checkbox" class="h-4 w-4 rounded border-slate-300" aria-label="Selecionar todas desta página" /></th>
+                  <th class="th">Nº / Série</th>
+                  <th class="th">Chave de acesso</th>
+                  <th class="th">Destinatário</th>
+                  <th class="th">Emissão</th>
+                  <th class="th text-right">Valor</th>
+                  <th class="th">Situação</th>
+                  <th class="th">XML</th>
+                  <th class="th w-28 text-right"><span class="sr-only">Ações</span></th>
+                </tr>
+              </thead>
+              <tbody id="corpo" class="divide-y divide-slate-100 dark:divide-slate-800"></tbody>
+            </table>
+          </div>
+          <div id="vazio" class="hidden px-6 py-14 text-center">
+            <p class="font-medium">Nenhuma nota encontrada</p>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Ajuste os filtros ou rode uma sincronização para buscar novas notas.</p>
+          </div>
+          <!-- Pagination -->
+          <div class="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 text-sm dark:border-slate-800">
+            <label class="flex items-center gap-2 text-slate-500 dark:text-slate-400">Por página
+              <select id="tam-pag" class="field !w-auto !py-1"><option>10</option><option>25</option><option>50</option></select>
+            </label>
+            <div class="flex items-center gap-2">
+              <span id="pag-txt" class="text-slate-500 dark:text-slate-400"></span>
+              <button id="pag-ant" class="btn-ghost !px-2 !py-1" aria-label="Página anterior">‹</button>
+              <button id="pag-prox" class="btn-ghost !px-2 !py-1" aria-label="Próxima página">›</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ VIEW: CONFIGURAÇÕES ============ -->
+      <div id="view-config" class="hidden max-w-3xl space-y-6">
+        <section class="card p-5">
+          <h2 class="font-semibold">Certificado digital A1</h2>
+          <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Arquivo .pfx/.p12. A senha fica só na memória do servidor (nunca é gravada em disco nem exibida). Após reiniciar o servidor, defina a variável NFE_PFX_SENHA ou envie o certificado de novo.</p>
+          <dl class="mt-4 grid gap-3 text-sm sm:grid-cols-3">
+            <div><dt class="label">Titular</dt><dd id="cert-titular">—</dd></div>
+            <div><dt class="label">CNPJ do certificado</dt><dd id="cert-cnpj" class="font-mono">—</dd></div>
+            <div><dt class="label">Validade</dt><dd id="cert-validade">—</dd></div>
+          </dl>
+          <div class="mt-4 rounded-lg border-2 border-dashed border-slate-300 p-6 text-center text-sm dark:border-slate-700" id="dropzone">
+            <p>Arraste o arquivo .pfx aqui ou</p>
+            <label class="btn-ghost mt-2 cursor-pointer">Escolher arquivo<input id="pfx" type="file" accept=".pfx,.p12" class="sr-only" /></label>
+            <p id="pfx-nome" class="mt-2 text-slate-500 dark:text-slate-400"></p>
+          </div>
+          <p id="cert-aviso" class="mt-3 text-sm text-amber-700 dark:text-amber-400" role="status"></p>
+          <div class="mt-4 grid gap-3 sm:grid-cols-2">
+            <div><label class="label" for="pfx-senha">Senha do certificado</label><input id="pfx-senha" type="password" class="field" autocomplete="off" /></div>
+          </div>
+          <div class="mt-4 flex gap-2"><button class="btn-primary" id="btn-testar-cert">Validar e salvar</button></div>
+        </section>
+
+        <section class="card p-5">
+          <h2 class="font-semibold">Sincronização automática</h2>
+          <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">A SEFAZ limita consultas repetidas. Intervalos curtos podem causar bloqueio temporário (erro 656).</p>
+          <div class="mt-4 grid gap-4 sm:grid-cols-2">
+            <div>
+              <label class="label" for="cfg-intervalo">Intervalo entre consultas</label>
+              <select id="cfg-intervalo" class="field"><option value="60">1 hora</option><option value="90">1 hora e 30 minutos</option><option value="120">2 horas</option><option value="360">6 horas</option><option value="0">Somente manual</option></select>
+            </div>
+            <div>
+              <label class="label" for="cfg-ambiente">Ambiente</label>
+              <select id="cfg-ambiente" class="field"><option value="1">Produção</option><option value="2">Homologação</option></select>
+            </div>
+          </div>
+          <label class="mt-4 flex items-center gap-2 text-sm"><input id="cfg-auto" type="checkbox" class="h-4 w-4 rounded" />Sincronização automática ativa</label>
+          <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">CNPJ consultado: <span id="cfg-cnpj" class="font-mono">—</span> (definido no appsettings.json)</p>
+          <div class="mt-4"><button class="btn-primary" id="btn-salvar-cfg">Salvar</button></div>
+        </section>
+      </div>
+
+    </main>
+
+  </div>
+</div>
+
+<!-- ============ NoteDetailDrawer ============ -->
+<div id="drawer-fundo" class="fixed inset-0 z-40 hidden bg-slate-900/40"></div>
+<aside id="drawer" class="fixed right-0 top-0 z-50 hidden h-full w-full max-w-md overflow-y-auto border-l border-slate-200 bg-white p-5 shadow-xl dark:border-slate-800 dark:bg-slate-900" role="dialog" aria-modal="true" aria-labelledby="drawer-titulo" tabindex="-1">
+  <div class="mb-4 flex items-start justify-between">
+    <h2 id="drawer-titulo" class="text-lg font-semibold"></h2>
+    <button id="drawer-fechar" class="icon-btn" aria-label="Fechar detalhes">✕</button>
+  </div>
+  <dl id="drawer-corpo" class="space-y-3 text-sm"></dl>
+  <div class="mt-6 flex gap-2" id="drawer-acoes"></div>
+</aside>
+
+<!-- ============ Toasts (anunciados por leitores de tela) ============ -->
+<div id="toasts" class="pointer-events-none fixed bottom-4 right-4 z-[60] flex flex-col gap-2" role="status" aria-live="polite"></div>
+
+<script>
+/* ------------------------------------------------------------------ ícones */
+const ICONS = {
+  home: '<path d="M3 11l9-8 9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
+  file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
+  cog: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+  refresh: '<path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5M3 21v-5h5"/>',
+  moon: '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>',
+  copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/>',
+  download: '<path d="M12 3v12m0 0l-4-4m4 4l4-4"/><path d="M4 20h16"/>',
+  eye: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  table: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 4v16"/>',
+  alert: '<path d="M12 9v4m0 4h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>',
+  check: '<path d="M20 6L9 17l-5-5"/>',
+};
+const icon = (n, cls = "h-4 w-4") =>
+  `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[n]}</svg>`;
+document.querySelectorAll("[data-icon]").forEach(el => { el.innerHTML = icon(el.dataset.icon); });
+
+/* ------------------------------------------------------------------ utilidades */
+const $ = (s, r = document) => r.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const brl = v => v == null ? "—" : Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const dataBR = iso => iso ? iso.slice(0, 10).split("-").reverse().join("/") : "—";
+const dataHora = iso => iso ? new Date(iso).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "—";
+const docFmt = d => !d ? "" : d.length === 14 ? d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5")
+  : d.length === 11 ? d.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, "$1.$2.$3-$4") : d;
+
+function toast(msg, tipo = "ok") {
+  const cores = tipo === "erro" ? "bg-red-600" : tipo === "aviso" ? "bg-amber-600" : "bg-slate-900 dark:bg-slate-100 dark:text-slate-900";
+  const el = document.createElement("div");
+  el.className = `pointer-events-auto flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm text-white shadow-lg ${cores}`;
+  el.innerHTML = (tipo === "ok" ? icon("check") : icon("alert")) + `<span>${esc(msg)}</span>`;
+  $("#toasts").appendChild(el);
+  setTimeout(() => el.remove(), tipo === "ok" ? 3500 : 6000);
+}
+
+async function copiar(texto, msg) {
+  try { await navigator.clipboard.writeText(texto); }
+  catch {
+    const t = document.createElement("textarea"); t.value = texto; document.body.appendChild(t); t.select();
+    try { document.execCommand("copy"); } finally { t.remove(); }
+  }
+  toast(msg);
+}
+
+/* ------------------------------------------------------------------ acesso à API */
+let TOKEN = "";
+try { TOKEN = sessionStorage.getItem("apiToken") || ""; } catch (e) {}
+
+async function api(path, init = {}, jaTentou = false) {
+  const headers = { ...(init.headers || {}) };
+  if (TOKEN) headers.Authorization = "Bearer " + TOKEN;
+  const r = await fetch(path, { ...init, headers });
+  if (r.status === 401 && !jaTentou) {
+    const t = window.prompt("Esta instalação exige um token de acesso (ApiToken do appsettings.json):");
+    if (t) {
+      TOKEN = t.trim();
+      try { sessionStorage.setItem("apiToken", TOKEN); } catch (e) {}
+      return api(path, init, true);
+    }
+  }
+  return r;
+}
+async function apiJson(path, init = {}) {
+  if (init.json !== undefined) { init = { ...init, method: init.method || "POST", body: JSON.stringify(init.json), headers: { ...(init.headers || {}), "Content-Type": "application/json" } }; delete init.json; }
+  const r = await api(path, init);
+  const corpo = await r.json().catch(() => null);
+  if (!r.ok) throw new Error(corpo?.erro || `Erro ${r.status} ao falar com o servidor`);
+  return corpo;
+}
+function salvarBlob(blob, nome) {
+  const url = URL.createObjectURL(blob), a = document.createElement("a");
+  a.href = url; a.download = nome; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+async function baixar(path, init, nome) {
+  const r = await api(path, init);
+  if (!r.ok) { const c = await r.json().catch(() => null); throw new Error(c?.erro || `Erro ${r.status}`); }
+  salvarBlob(await r.blob(), nome);
+  return r;
+}
+
+/* ------------------------------------------------------------------ estado */
+const S = {
+  view: "dashboard", pag: 1, tam: 10, totalPaginas: 1, total: 0, itens: [], sel: new Map(), filtro: {},
+  novas: 0, sync: null, dash: null, bannerDispensado: false, notasCarregadas: false,
+};
+
+/* ------------------------------------------------------------------ navegação */
+const TITULOS = { dashboard: "Visão geral", notas: "Notas fiscais", config: "Configurações" };
+function ir(view) {
+  S.view = view;
+  ["dashboard", "notas", "config"].forEach(v => $("#view-" + v).classList.toggle("hidden", v !== view));
+  $("#titulo-pagina").textContent = TITULOS[view];
+  document.querySelectorAll(".tab-item").forEach(b => {
+    const ativo = b.dataset.view === view;
+    b.setAttribute("aria-current", ativo ? "page" : "false");
+    b.classList.toggle("bg-blue-50", ativo); b.classList.toggle("text-blue-700", ativo);
+    b.classList.toggle("dark:bg-blue-950", ativo); b.classList.toggle("dark:text-blue-300", ativo);
+    b.classList.toggle("text-slate-600", !ativo); b.classList.toggle("dark:text-slate-300", !ativo);
+  });
+  document.querySelectorAll(".nav-item").forEach(b => {
+    const ativo = b.dataset.view === view;
+    b.setAttribute("aria-current", ativo ? "page" : "false");
+    b.className = "nav-item flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left font-medium " +
+      (ativo ? "bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300" : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800");
+  });
+  if (view === "notas" && !S.notasCarregadas) carregarNotas();
+  if (view === "config") carregarConfig();
+  if (view === "dashboard") carregarDashboard();
+}
+document.querySelectorAll("[data-view]").forEach(b => b.addEventListener("click", () => ir(b.dataset.view)));
+
+/* ------------------------------------------------------------------ dashboard */
+const HIST = {
+  "138": r => [`138 · ${r.novasNotas} nota${r.novasNotas === 1 ? "" : "s"} nova${r.novasNotas === 1 ? "" : "s"}`, "ok"],
+  "137": () => ["137 · sem novidades", "ok"],
+  "656": () => ["656 · bloqueio temporário", "aviso"],
+  "CANCELADO": () => ["Cancelada pelo usuário", "aviso"],
+  "INTERROMPIDO": () => ["Interrompida (servidor reiniciou)", "aviso"],
+  "ERRO": r => [r.mensagem || "Erro", "erro"],
+};
+async function carregarDashboard() {
+  try {
+    const [d, ult] = await Promise.all([apiJson("/api/dashboard"), apiJson("/api/notas?tamanho=5")]);
+    S.dash = d; S.sync = d.sync;
+    renderKpis(d); renderSync();
+    $("#ultimas").innerHTML = ult.itens.length ? ult.itens.map(n => `
+      <li class="flex items-center justify-between gap-3 py-2.5 text-sm"><div class="min-w-0"><p class="truncate font-medium">NF ${esc(n.numero)} · ${esc(n.destinatarioNome || docFmt(n.destinatarioDoc) || "sem destinatário")}</p>
+      <p class="text-xs text-slate-500 dark:text-slate-400">${dataBR(n.emissao)}</p></div><span class="tabular-nums">${brl(n.valor)}</span></li>`).join("")
+      : `<li class="py-6 text-center text-sm text-slate-500 dark:text-slate-400">Nenhuma nota ainda. Rode uma sincronização ou importe XMLs/SPED pela linha de comando.</li>`;
+    $("#historico-sync").innerHTML = d.historico.length ? d.historico.map(r => {
+      const [t, k] = r.fimEm == null ? ["Em andamento…", "ok"] : (HIST[r.resultado] ?? (() => [r.resultado, "aviso"]))(r);
+      const cor = k === "ok" ? "bg-emerald-500" : k === "erro" ? "bg-red-500" : "bg-amber-500";
+      return `<li class="flex gap-3"><span class="mt-1.5 h-2 w-2 shrink-0 rounded-full ${cor}"></span><div class="min-w-0"><p class="font-medium break-words">${esc(t)}</p><p class="text-xs text-slate-500 dark:text-slate-400">${dataHora(r.iniciadoEm)} · ${esc(r.origem)}</p></div></li>`;
+    }).join("") : `<li class="text-slate-500 dark:text-slate-400">Nenhuma sincronização ainda.</li>`;
+  } catch (e) { toast(e.message, "erro"); }
+}
+function renderKpis(d) {
+  const r = d.resumo, s = d.sync;
+  const ult = s.ultimoResultado ? dataHora(s.ultimoResultado.fimEm) : "nunca";
+  const prox = s.proximaExecucao ? "próxima: " + dataHora(s.proximaExecucao) : s.automatica ? "—" : "automática desligada";
+  const [ano, mes] = r.mes.split("-");
+  const cards = [
+    ["Notas emitidas no mês", String(r.notasNoMes), `${mes}/${ano} (exclui canceladas)`],
+    ["Valor faturado no mês", brl(r.valorNoMes), "soma das notas do mês, exceto canceladas"],
+    ["XML baixado / pendente", `${r.xmlBaixados} <span class="text-slate-400">/</span> ${r.xmlPendentes}`,
+      r.xmlPendentes ? `<button class="font-medium text-blue-600 hover:underline dark:text-blue-400" data-filtra-pend>ver pendentes</button>` : "tudo baixado"],
+    ["Última sincronização", ult, prox],
+  ];
+  $("#kpis").innerHTML = cards.map(([t, v, sub]) => `
+    <div class="card p-4"><p class="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">${t}</p>
+    <p class="mt-2 text-2xl font-semibold tabular-nums">${v}</p><p class="mt-1 text-xs text-slate-500 dark:text-slate-400">${sub}</p></div>`).join("");
+  const b = $("[data-filtra-pend]"); if (b) b.onclick = () => { $("#f-xml").value = "PENDENTE"; ir("notas"); lerFiltros(); };
+}
+document.querySelectorAll("[data-goto]").forEach(b => b.addEventListener("click", () => ir(b.dataset.goto)));
+
+/* ------------------------------------------------------------------ tabela */
+const CHIP_SIT = {
+  AUTORIZADA: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
+  CANCELADA: "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300",
+  DENEGADA: "bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
+  DESCONHECIDA: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
+};
+const ROTULO_SIT = { AUTORIZADA: "Autorizada", CANCELADA: "Cancelada", DENEGADA: "Denegada", DESCONHECIDA: "Sem informação" };
+
+function lerFiltros() {
+  S.filtro = { busca: $("#f-busca").value.trim(), de: $("#f-de").value, ate: $("#f-ate").value, situacao: $("#f-sit").value, xml: $("#f-xml").value };
+  S.pag = 1; carregarNotas();
+}
+function queryFiltros() {
+  const q = new URLSearchParams();
+  for (const k of ["busca", "de", "ate", "situacao", "xml"]) if (S.filtro[k]) q.set(k, S.filtro[k]);
+  return q;
+}
+let _req = 0;
+async function carregarNotas() {
+  const meu = ++_req;
+  skeletonTabela();
+  const q = queryFiltros(); q.set("pagina", S.pag); q.set("tamanho", S.tam);
+  try {
+    const d = await apiJson("/api/notas?" + q);
+    if (meu !== _req) return; // resposta de uma busca antiga
+    Object.assign(S, { itens: d.itens, total: d.total, pag: d.pagina, totalPaginas: d.totalPaginas, notasCarregadas: true });
+    renderTabela();
+  } catch (e) {
+    if (meu !== _req) return;
+    $("#tabela").setAttribute("aria-busy", "false");
+    $("#corpo").innerHTML = `<tr><td colspan="9" class="px-6 py-10 text-center"><p class="font-medium text-red-600 dark:text-red-400">Não foi possível carregar as notas</p><p class="mt-1 text-sm text-slate-500">${esc(e.message)}</p><button class="btn-ghost mt-3" id="btn-recarregar">Tentar de novo</button></td></tr>`;
+    $("#btn-recarregar").onclick = carregarNotas;
+  }
+}
+function renderTabela() {
+  $("#tabela").setAttribute("aria-busy", "false");
+  $("#vazio").classList.toggle("hidden", S.itens.length > 0);
+  $("#corpo").innerHTML = S.itens.map(n => `
+    <tr class="${S.sel.has(n.chave) ? "bg-blue-50/60 dark:bg-blue-950/30" : "hover:bg-slate-50 dark:hover:bg-slate-800/50"}">
+      <td class="td"><input type="checkbox" class="chk h-4 w-4 rounded border-slate-300" data-k="${n.chave}" ${S.sel.has(n.chave) ? "checked" : ""} aria-label="Selecionar NF ${esc(n.numero)}" /></td>
+      <td class="td whitespace-nowrap font-medium tabular-nums">${esc(n.numero)} <span class="font-normal text-slate-400">/ ${esc(n.serie)}</span></td>
+      <td class="td"><div class="flex items-center gap-1">
+        <code class="font-mono text-xs text-slate-600 dark:text-slate-300" title="${n.chave}">${n.chave.slice(0, 6)}…${n.chave.slice(-8)}</code>
+        <button class="icon-btn" data-copiar="${n.chave}" aria-label="Copiar chave da NF ${esc(n.numero)}" title="Copiar chave">${icon("copy")}</button></div></td>
+      <td class="td"><p class="max-w-[14rem] truncate font-medium">${esc(n.destinatarioNome || "—")}</p><p class="font-mono text-xs text-slate-500 dark:text-slate-400">${esc(docFmt(n.destinatarioDoc))}</p></td>
+      <td class="td whitespace-nowrap tabular-nums">${dataBR(n.emissao)}</td>
+      <td class="td whitespace-nowrap text-right font-medium tabular-nums">${brl(n.valor)}</td>
+      <td class="td"><span class="chip ${CHIP_SIT[n.situacao]}" title="${esc(n.situacaoCodigo || "")}">${ROTULO_SIT[n.situacao]}</span></td>
+      <td class="td">${n.xml === "BAIXADO"
+        ? `<span class="chip bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">${icon("check", "h-3 w-3")}Baixado</span>`
+        : `<span class="chip bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300" title="Chave conhecida, XML ainda não obtido">Pendente</span>`}</td>
+      <td class="td"><div class="flex justify-end gap-0.5">
+        <button class="icon-btn" data-ver="${n.chave}" aria-label="Ver detalhes da NF ${esc(n.numero)}" title="Ver detalhes">${icon("eye")}</button>
+        <button class="icon-btn" data-xml="${n.chave}" ${n.xml !== "BAIXADO" ? 'disabled title="XML ainda não disponível"' : 'title="Baixar XML"'} aria-label="Baixar XML da NF ${esc(n.numero)}">${icon("download")}</button></div></td>
+    </tr>`).join("");
+  $("#contagem").textContent = `${S.total} nota${S.total === 1 ? "" : "s"} encontrada${S.total === 1 ? "" : "s"}`;
+  $("#pag-txt").textContent = `Página ${S.pag} de ${S.totalPaginas}`;
+  $("#pag-ant").disabled = S.pag <= 1; $("#pag-prox").disabled = S.pag >= S.totalPaginas;
+  atualizarSelecao();
+}
+function atualizarSelecao() {
+  const n = S.sel.size, naPag = S.itens.filter(x => S.sel.has(x.chave)).length;
+  const all = $("#chk-todos"); all.checked = naPag > 0 && naPag === S.itens.length; all.indeterminate = naPag > 0 && naPag < S.itens.length;
+  $("#bulk").classList.toggle("hidden", n === 0); $("#bulk").classList.toggle("flex", n > 0);
+  $("#btn-csv-todos").classList.toggle("hidden", n > 0);
+  $("#bulk-txt").textContent = `${n} selecionada${n === 1 ? "" : "s"}`;
+}
+function skeletonTabela() {
+  $("#tabela").setAttribute("aria-busy", "true");
+  $("#vazio").classList.add("hidden");
+  $("#corpo").innerHTML = Array.from({ length: Math.min(S.tam, 10) }, () =>
+    `<tr>${[6, 16, 30, 40, 18, 18, 18, 14, 12].map(w => `<td class="td"><div class="skeleton h-4" style="width:${w * 2.2}px;max-width:100%"></div></td>`).join("")}</tr>`).join("");
+}
+
+$("#corpo").addEventListener("click", async e => {
+  const b = e.target.closest("button"); if (!b) return;
+  if (b.dataset.copiar) copiar(b.dataset.copiar, "Chave copiada com sucesso!");
+  if (b.dataset.ver) abrirDrawer(b.dataset.ver);
+  if (b.dataset.xml) baixarXml(b.dataset.xml);
+});
+async function baixarXml(chave) {
+  try { await baixar(`/api/notas/${chave}/xml`, {}, chave + ".xml"); toast("XML baixado"); }
+  catch (err) { toast(err.message, "erro"); }
+}
+$("#corpo").addEventListener("change", e => {
+  if (!e.target.classList.contains("chk")) return;
+  const n = S.itens.find(x => x.chave === e.target.dataset.k);
+  e.target.checked ? S.sel.set(n.chave, n) : S.sel.delete(n.chave);
+  e.target.closest("tr").className = e.target.checked ? "bg-blue-50/60 dark:bg-blue-950/30" : "hover:bg-slate-50 dark:hover:bg-slate-800/50";
+  atualizarSelecao();
+});
+$("#chk-todos").addEventListener("change", e => {
+  S.itens.forEach(n => e.target.checked ? S.sel.set(n.chave, n) : S.sel.delete(n.chave)); renderTabela();
+});
+$("#btn-desmarcar").onclick = () => { S.sel.clear(); renderTabela(); };
+$("#pag-ant").onclick = () => { S.pag--; carregarNotas(); };
+$("#pag-prox").onclick = () => { S.pag++; carregarNotas(); };
+$("#tam-pag").onchange = e => { S.tam = +e.target.value; S.pag = 1; carregarNotas(); };
+["f-busca", "f-de", "f-ate", "f-sit", "f-xml"].forEach(id => $("#" + id).addEventListener(id === "f-busca" ? "input" : "change", debounceFiltro));
+let _t; function debounceFiltro() { clearTimeout(_t); _t = setTimeout(lerFiltros, 300); }
+$("#btn-limpar").onclick = () => { $("#filtros").reset(); lerFiltros(); };
+$("#filtros").addEventListener("submit", e => e.preventDefault());
+
+/* ações em lote */
+function csvLocal(linhas) {
+  const cel = v => { v = String(v ?? ""); if (/^[=+\-@\t\r]/.test(v)) v = "'" + v; return `"${v.replace(/"/g, '""')}"`; };
+  const cab = ["Numero", "Serie", "Chave", "Destinatario", "Documento", "Emissao", "Valor", "Situacao", "XML"];
+  return "﻿" + [cab, ...linhas.map(n => [n.numero, n.serie, n.chave, n.destinatarioNome, n.destinatarioDoc, (n.emissao || "").slice(0, 10),
+    n.valor == null ? "" : Number(n.valor).toFixed(2).replace(".", ","), n.situacao, n.xml])].map(l => l.map(cel).join(";")).join("\r\n");
+}
+$("#btn-csv-sel").onclick = () => { const l = [...S.sel.values()]; salvarBlob(new Blob([csvLocal(l)], { type: "text/csv;charset=utf-8" }), "notas-selecionadas.csv"); toast(`CSV com ${l.length} notas gerado`); };
+$("#btn-csv-todos").onclick = async () => {
+  try { await baixar("/api/notas/export.csv?" + queryFiltros(), {}, "notas.csv"); toast("CSV do resultado gerado"); }
+  catch (e) { toast(e.message, "erro"); }
+};
+$("#btn-zip").onclick = async () => {
+  const chaves = [...S.sel.keys()], b = $("#btn-zip"); b.disabled = true;
+  try {
+    const r = await baixar("/api/notas/zip", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chaves }) }, "notas-xml.zip");
+    const sem = +r.headers.get("X-Sem-Xml");
+    toast(sem ? `${r.headers.get("X-Incluidas")} XMLs no .zip; ${sem} sem XML disponível foram ignorados` : `.zip com ${chaves.length} XMLs gerado`, sem ? "aviso" : "ok");
+  } catch (e) { toast(e.message, "erro"); }
+  finally { b.disabled = false; }
+};
+
+/* ------------------------------------------------------------------ drawer de detalhes */
+let _foco;
+function abrirDrawer(chave) {
+  const n = S.itens.find(x => x.chave === chave); if (!n) return; _foco = document.activeElement;
+  $("#drawer-titulo").textContent = `NF ${n.numero} · série ${n.serie}`;
+  const linha = (k, v) => `<div><dt class="label">${k}</dt><dd>${v}</dd></div>`;
+  $("#drawer-corpo").innerHTML = linha("Chave de acesso", `<code class="break-all font-mono text-xs">${n.chave}</code>`) +
+    linha("Destinatário", `${esc(n.destinatarioNome || "—")}<br><span class="font-mono text-xs text-slate-500">${esc(docFmt(n.destinatarioDoc))}</span>`) +
+    linha("Emissão", dataBR(n.emissao)) + linha("Valor total", brl(n.valor)) +
+    linha("Situação", `<span class="chip ${CHIP_SIT[n.situacao]}">${ROTULO_SIT[n.situacao]}</span>${n.situacaoCodigo ? ` <span class="text-xs text-slate-500">(${esc(n.situacaoCodigo)})</span>` : ""}`) +
+    linha("XML local", n.xml === "BAIXADO" ? "Baixado" : "Pendente — ainda não obtido") + linha("Origem", esc(n.origem || "—"));
+  $("#drawer-acoes").innerHTML = `<button class="btn-ghost" id="d-copiar">${icon("copy")}Copiar chave</button><button class="btn-primary" id="d-xml" ${n.xml !== "BAIXADO" ? "disabled" : ""}>${icon("download")}Baixar XML</button>`;
+  $("#d-copiar").onclick = () => copiar(n.chave, "Chave copiada com sucesso!");
+  $("#d-xml").onclick = () => baixarXml(n.chave);
+  $("#drawer").classList.remove("hidden"); $("#drawer-fundo").classList.remove("hidden"); $("#drawer").focus();
+}
+function fecharDrawer() { $("#drawer").classList.add("hidden"); $("#drawer-fundo").classList.add("hidden"); _foco?.focus(); }
+$("#drawer-fechar").onclick = fecharDrawer; $("#drawer-fundo").onclick = fecharDrawer;
+document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("#drawer").classList.contains("hidden")) fecharDrawer(); });
+
+/* ------------------------------------------------------------------ SINCRONIZAÇÃO
+   O servidor é a fonte da verdade (idle | running | blocked | error). A tela só reflete:
+   - GET /api/sync/status ao carregar e após cada evento relevante;
+   - EventSource em /api/sync/events para progresso em tempo real.
+   O aviso "tudo em dia" é derivado: idle + último resultado 137 + não dispensado.                */
+let _tick;
+function setPillSefaz(cor, txt) { $("#pill-sefaz-dot").className = `h-2 w-2 rounded-full ${cor}`; $("#pill-sefaz-txt").textContent = txt; }
+function renderSync() {
+  const s = S.sync; if (!s) return;
+  const e = s.estado, b = $("#sync-banner"), btn = $("#btn-sync"), pb = $("#topbar-progress");
+  const vazio = e === "idle" && s.ultimoResultado?.cStat === "137" && !S.bannerDispensado;
+  const pct = s.progresso?.percentual ?? 0;
+  clearInterval(_tick);
+
+  btn.disabled = e === "running" || e === "blocked";
+  $("#btn-sync-txt").textContent = e === "running" ? "Sincronizando…" : "Sincronizar agora";
+  $("#btn-sync svg").classList.toggle("animate-spin", e === "running");
+  pb.classList.toggle("hidden", e !== "running"); $("#topbar-progress-fill").style.width = pct + "%";
+
+  if (e === "running") setPillSefaz("bg-blue-500 animate-pulse", "Sincronizando…");
+  else if (e === "blocked") setPillSefaz("bg-amber-500", "Consulta em espera");
+  else if (e === "error") setPillSefaz("bg-red-500", "Falha na última consulta");
+  else if (s.ultimoResultado) setPillSefaz("bg-emerald-500", "Última consulta OK");
+  else setPillSefaz("bg-slate-400", "Sem consultas ainda");
+
+  b.classList.toggle("hidden", !(e !== "idle" || vazio));
+  b.className = "card p-4" + (e === "idle" && !vazio ? " hidden" : "");
+  if (e === "running") {
+    const p = s.progresso;
+    b.innerHTML = `<div class="flex flex-wrap items-center gap-4"><div class="min-w-0 flex-1">
+      <p class="font-medium">Buscando novas notas na SEFAZ…</p>
+      <p class="mt-0.5 text-sm text-slate-500 dark:text-slate-400">${p ? `Lote ${p.pagina} · NSU ${Number(p.ultNsu).toLocaleString("pt-BR")} de ${Number(p.maxNsu).toLocaleString("pt-BR")} · <strong>${p.novasNotas}</strong> nota(s) nova(s) até agora` : "Conectando…"}</p>
+      <div class="mt-3 h-2 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" aria-label="Progresso da sincronização"><div class="h-full bg-blue-500 transition-all duration-500" style="width:${pct}%"></div></div></div>
+      <button class="btn-ghost" id="btn-cancelar-sync">Cancelar</button></div>
+      <p class="mt-2 text-xs text-slate-400">Você pode continuar usando o sistema. O que já foi baixado fica salvo mesmo se cancelar.</p>`;
+    $("#btn-cancelar-sync").onclick = async () => { try { await apiJson("/api/sync/cancel", { method: "POST" }); } catch (err) { toast(err.message, "erro"); } };
+  } else if (e === "blocked") {
+    b.className = "card border-amber-300 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/40";
+    b.innerHTML = `<div class="flex gap-3 text-sm">${icon("alert", "h-5 w-5 shrink-0 text-amber-600")}<div><p class="font-medium">A SEFAZ pediu para aguardar (erro 656 – consumo indevido)</p>
+      <p class="mt-1 text-slate-600 dark:text-slate-300">Consultas muito frequentes causam bloqueio temporário. Nova tentativa liberada em <strong id="contagem-regressiva">--:--</strong>. O botão “Sincronizar agora” fica desativado até lá.</p></div></div>`;
+    const alvo = new Date(s.retomarEm).getTime();
+    const tick = () => {
+      const falta = Math.max(0, Math.floor((alvo - Date.now()) / 1000)), el = $("#contagem-regressiva");
+      if (el) el.textContent = `${String(Math.floor(falta / 60)).padStart(2, "0")}:${String(falta % 60).padStart(2, "0")}`;
+      if (falta <= 0) { clearInterval(_tick); atualizarStatus(); }
+    };
+    tick(); _tick = setInterval(tick, 1000);
+  } else if (e === "error") {
+    b.className = "card border-red-300 bg-red-50 p-4 dark:border-red-900 dark:bg-red-950/40";
+    b.innerHTML = `<div class="flex flex-wrap items-center gap-3 text-sm">${icon("alert", "h-5 w-5 shrink-0 text-red-600")}<div class="min-w-0 flex-1"><p class="font-medium">Não foi possível consultar a SEFAZ</p>
+      <p class="mt-1 break-words text-slate-600 dark:text-slate-300">${esc(s.erro?.mensagem || "Erro desconhecido")} <span class="text-xs text-slate-400">(${esc(s.erro?.codigo || "")})</span></p>
+      <p class="mt-1 text-xs text-slate-500">Nada foi perdido: a próxima tentativa continua do último NSU salvo.</p></div>
+      <button class="btn-ghost" id="btn-ir-config">Abrir configurações</button><button class="btn-primary" id="btn-retry">Tentar de novo</button></div>`;
+    $("#btn-retry").onclick = iniciarSync; $("#btn-ir-config").onclick = () => ir("config");
+  } else if (vazio) {
+    b.innerHTML = `<div class="flex items-center gap-3 text-sm">${icon("check", "h-5 w-5 text-emerald-600")}<p><strong>Tudo em dia.</strong> Nenhuma nota nova na SEFAZ${s.proximaExecucao ? `. Próxima consulta automática: ${dataHora(s.proximaExecucao)}` : ""}.</p><button class="ml-auto icon-btn" id="btn-dispensar" aria-label="Dispensar aviso">✕</button></div>`;
+    $("#btn-dispensar").onclick = () => { S.bannerDispensado = true; renderSync(); };
+  }
+}
+async function atualizarStatus() {
+  try { S.sync = await apiJson("/api/sync/status"); renderSync(); if (S.view === "dashboard") carregarDashboard(); }
+  catch (e) { /* servidor indisponível: o EventSource tenta reconectar sozinho */ }
+}
+async function iniciarSync() {
+  S.bannerDispensado = false;
+  try { S.sync = await apiJson("/api/sync/start", { method: "POST" }); renderSync(); }
+  catch (e) { toast(e.message, "aviso"); atualizarStatus(); }
+}
+function mostrarNovas() {
+  const el = $("#novas-notas"); if (!S.novas) return el.classList.add("hidden");
+  $("#novas-notas-txt").textContent = `${S.novas} nota${S.novas === 1 ? "" : "s"} nova${S.novas === 1 ? "" : "s"} chegaram. A lista não foi alterada para não mudar o que você está vendo.`;
+  el.classList.remove("hidden"); el.classList.add("flex");
+}
+$("#btn-atualizar-lista").onclick = () => { S.novas = 0; mostrarNovas(); carregarNotas(); };
+$("#btn-sync").onclick = iniciarSync;
+
+function conectarEventos() {
+  const es = new EventSource("/api/sync/events" + (TOKEN ? "?token=" + encodeURIComponent(TOKEN) : ""));
+  es.onmessage = ev => {
+    const m = JSON.parse(ev.data);
+    if (m.tipo === "estado") { S.sync = m.estado; renderSync(); }
+    else if (m.tipo === "lote") { S.sync = { ...S.sync, estado: "running", progresso: m }; renderSync(); }
+    else if (m.tipo === "inicio") { S.bannerDispensado = false; atualizarStatus(); }
+    else if (m.tipo === "fim") {
+      atualizarStatus();
+      if (m.novasNotas > 0) { if (S.notasCarregadas) { S.novas += m.novasNotas; mostrarNovas(); } toast(`Sincronização concluída: ${m.novasNotas} nota${m.novasNotas === 1 ? "" : "s"} nova${m.novasNotas === 1 ? "" : "s"}`); }
+      else if (m.resultado === "CANCELADO") toast("Sincronização cancelada. O progresso foi mantido.", "aviso");
+    }
+    else if (m.tipo === "erro") { atualizarStatus(); toast("Falha na sincronização: " + m.mensagem, "erro"); }
+  };
+  es.onopen = () => atualizarStatus();
+}
+
+/* ------------------------------------------------------------------ configurações e certificado */
+const COR_PILL = {
+  emerald: ["bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300", "bg-emerald-500"],
+  amber: ["bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300", "bg-amber-500"],
+  red: ["bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300", "bg-red-500"],
+};
+function renderCertificado(c) {
+  const pill = $("#pill-cert");
+  let cor = "emerald", txt = "";
+  if (!c.configurado) { cor = "red"; txt = "Certificado A1 não configurado"; }
+  else if (c.erro && !c.titular) { cor = "red"; txt = c.erro; }
+  else if (!c.valido) { cor = "red"; txt = "Certificado A1 vencido"; }
+  else if (c.diasRestantes <= 30) { cor = "amber"; txt = `Certificado A1 vence em ${c.diasRestantes} dia(s)`; }
+  else txt = `Certificado A1 · vence ${dataBR(c.validade)}`;
+  pill.className = "chip " + COR_PILL[cor][0];
+  pill.innerHTML = `<span class="h-2 w-2 rounded-full ${COR_PILL[cor][1]}"></span>${esc(txt)}`;
+  $("#cert-titular").textContent = c.titular || "—";
+  $("#cert-cnpj").textContent = c.cnpj ? docFmt(c.cnpj) : "—";
+  $("#cert-validade").innerHTML = c.validade ? `<span class="chip ${c.valido ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300" : "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300"}">${dataBR(c.validade)} · ${c.valido ? `faltam ${c.diasRestantes} dias` : "vencido"}</span>` : "—";
+  const av = [];
+  if (c.erro) av.push(c.erro);
+  if (c.cnpjConfere === false) av.push("O CNPJ do certificado é diferente do CNPJ configurado no servidor.");
+  $("#cert-aviso").textContent = av.join(" ");
+}
+async function carregarCertificado() { try { renderCertificado(await apiJson("/api/certificado")); } catch (e) { /* sem API */ } }
+async function carregarConfig() {
+  try {
+    const c = await apiJson("/api/config");
+    const sel = $("#cfg-intervalo");
+    if (![...sel.options].some(o => +o.value === c.intervaloMinutos)) sel.add(new Option(`${c.intervaloMinutos} minutos`, c.intervaloMinutos));
+    sel.value = c.intervaloMinutos; $("#cfg-auto").checked = c.automatica; $("#cfg-ambiente").value = c.ambiente;
+    $("#cfg-cnpj").textContent = c.cnpj ? docFmt(c.cnpj) : "não configurado";
+  } catch (e) { toast(e.message, "erro"); }
+  carregarCertificado();
+}
+$("#btn-salvar-cfg").onclick = async () => {
+  try {
+    await apiJson("/api/config", { method: "PUT", json: { intervaloMinutos: +$("#cfg-intervalo").value, automatica: $("#cfg-auto").checked, ambiente: +$("#cfg-ambiente").value } });
+    toast("Configurações salvas"); atualizarStatus();
+  } catch (e) { toast(e.message, "erro"); }
+};
+let _pfx = null;
+function escolherPfx(f) { _pfx = f || null; $("#pfx-nome").textContent = f ? f.name : ""; }
+$("#pfx").onchange = e => escolherPfx(e.target.files[0]);
+const dz = $("#dropzone");
+["dragover", "dragenter"].forEach(t => dz.addEventListener(t, e => { e.preventDefault(); dz.classList.add("border-blue-500"); }));
+["dragleave", "drop"].forEach(t => dz.addEventListener(t, e => { e.preventDefault(); dz.classList.remove("border-blue-500"); }));
+dz.addEventListener("drop", e => escolherPfx(e.dataTransfer.files[0]));
+$("#btn-testar-cert").onclick = async () => {
+  const senha = $("#pfx-senha").value;
+  if (!_pfx || !senha) return toast("Escolha o arquivo .pfx e informe a senha.", "aviso");
+  const fd = new FormData(); fd.append("arquivo", _pfx); fd.append("senha", senha);
+  const b = $("#btn-testar-cert"); b.disabled = true;
+  try {
+    const r = await apiJson("/api/certificado", { method: "POST", body: fd });
+    renderCertificado(r.certificado); $("#pfx-senha").value = ""; escolherPfx(null);
+    toast("Certificado validado e salvo"); if (r.aviso) $("#cert-aviso").textContent = ($("#cert-aviso").textContent + " " + r.aviso).trim();
+  } catch (e) { toast(e.message, "erro"); }
+  finally { b.disabled = false; }
+};
+$("#btn-tema").onclick = () => {
+  const dark = document.documentElement.classList.toggle("dark");
+  try { localStorage.setItem("tema", dark ? "dark" : "light"); } catch (e) {}
+};
+
+/* ------------------------------------------------------------------ início */
+ir("dashboard");
+carregarCertificado();
+conectarEventos();
+</script>
+</body>
+</html>

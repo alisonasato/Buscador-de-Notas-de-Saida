@@ -39,4 +39,39 @@ public class FiltroBusca
     public decimal? ValorMin { get; set; }
     public decimal? ValorMax { get; set; }
     public int Limite { get; set; } = 50;
+    public int Offset { get; set; }
+
+    /// <summary>Texto livre: trecho da chave, número, nome ou CNPJ/CPF do destinatário.</summary>
+    public string? Busca { get; set; }
+    /// <summary>AUTORIZADA | CANCELADA | DENEGADA | DESCONHECIDA (ver <see cref="Situacao"/>).</summary>
+    public string? Situacao { get; set; }
+    /// <summary>BAIXADO (tem XML local) | PENDENTE (qualquer outro status, sem XML).</summary>
+    public string? Xml { get; set; }
+}
+
+public record PaginaNotas(List<NotaSaida> Itens, int Total, int Pagina, int Tamanho);
+
+public record ResumoDashboard(string Mes, int NotasNoMes, decimal ValorNoMes, int XmlBaixados, int XmlPendentes, int Total);
+
+public record LogSincronizacao(long Id, string IniciadoEm, string? FimEm, string Origem, string? Resultado, int NovasNotas, string? Mensagem);
+
+/// <summary>Situação fiscal exibida na interface, derivada do texto guardado em SituacaoSefaz (cStat da Sefaz ou código do SPED).</summary>
+public static class Situacao
+{
+    public const string Autorizada = "AUTORIZADA", Cancelada = "CANCELADA", Denegada = "DENEGADA", Desconhecida = "DESCONHECIDA";
+
+    // Prefixos de cStat (Sefaz) e códigos COD_SIT do SPED (00 regular, 01 extemporâneo, 02/03 cancelado, 04 denegado, 06-08 complementar/regime especial).
+    internal static readonly string[] PrefixosAutorizada = { "100", "150", "SPED COD_SIT=00", "SPED COD_SIT=01", "SPED COD_SIT=06", "SPED COD_SIT=07", "SPED COD_SIT=08" };
+    internal static readonly string[] PrefixosCancelada = { "101", "135", "155", "SPED COD_SIT=02", "SPED COD_SIT=03" };
+    internal static readonly string[] PrefixosDenegada = { "110", "301", "302", "SPED COD_SIT=04" };
+
+    public static string Classificar(string? situacaoSefaz)
+    {
+        if (string.IsNullOrWhiteSpace(situacaoSefaz)) return Desconhecida;
+        bool Tem(string[] pref) => pref.Any(p => situacaoSefaz.StartsWith(p, StringComparison.Ordinal));
+        if (Tem(PrefixosCancelada)) return Cancelada;
+        if (Tem(PrefixosDenegada)) return Denegada;
+        if (Tem(PrefixosAutorizada)) return Autorizada;
+        return Desconhecida;
+    }
 }

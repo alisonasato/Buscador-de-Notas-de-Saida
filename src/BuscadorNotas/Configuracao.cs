@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace BuscadorNotas;
 
@@ -21,9 +22,22 @@ public class Configuracao
     public int EsperaConsumoIndevidoMinutos { get; set; } = 65;
     public int PausaEntreRequisicoesSegundos { get; set; } = 2;
 
-    /// <summary>A senha do certificado nunca fica no arquivo: vem da variável de ambiente NFE_PFX_SENHA.</summary>
+    /// <summary>Endereço do servidor web (comando <c>serve</c>). Fora de loopback exige <see cref="ApiToken"/>.</summary>
+    public string ApiUrl { get; set; } = "http://127.0.0.1:5080";
+
+    /// <summary>Se preenchido, toda chamada a /api deve enviar "Authorization: Bearer &lt;token&gt;".</summary>
+    public string ApiToken { get; set; } = "";
+
+    /// <summary>Liga o agendador do servidor (consulta à Sefaz sem ação do usuário). Pode ser alterado pela interface.</summary>
+    public bool SincronizacaoAutomatica { get; set; }
+
+    /// <summary>Senha informada pela interface (só em memória, nunca gravada). Tem prioridade sobre a variável de ambiente.</summary>
+    [JsonIgnore] public string? SenhaEmMemoria { get; set; }
+
+    /// <summary>A senha do certificado nunca fica no arquivo: vem da interface (memória) ou da variável NFE_PFX_SENHA.</summary>
+    [JsonIgnore]
     public string SenhaCertificado =>
-        Environment.GetEnvironmentVariable("NFE_PFX_SENHA") ?? "";
+        SenhaEmMemoria ?? Environment.GetEnvironmentVariable("NFE_PFX_SENHA") ?? "";
 
     public static Configuracao Carregar(string? caminho = null)
     {
@@ -40,10 +54,19 @@ public class Configuracao
         return cfg;
     }
 
+    /// <summary>Aplica as escolhas feitas na interface (guardadas no banco) por cima do arquivo de configuração.</summary>
+    public void AplicarPreferencias(Repositorio repo)
+    {
+        if (int.TryParse(repo.ObterPref("intervaloMinutos"), out var i) && i >= 0) EsperaSemNovosMinutos = i;
+        if (bool.TryParse(repo.ObterPref("automatica"), out var a)) SincronizacaoAutomatica = a;
+        if (int.TryParse(repo.ObterPref("ambiente"), out var amb) && amb is 1 or 2) Ambiente = amb;
+        if (repo.ObterPref("certificadoPfx") is { Length: > 0 } pfx && File.Exists(pfx)) CertificadoPfx = pfx;
+    }
+
     public void ValidarParaSefaz()
     {
         if (Cnpj.Length != 14) throw new InvalidOperationException("Cnpj deve ter 14 dígitos.");
         if (string.IsNullOrWhiteSpace(CertificadoPfx)) throw new InvalidOperationException("CertificadoPfx não informado.");
-        if (string.IsNullOrEmpty(SenhaCertificado)) throw new InvalidOperationException("Defina a variável de ambiente NFE_PFX_SENHA.");
+        if (string.IsNullOrEmpty(SenhaCertificado)) throw new InvalidOperationException("Informe a senha do certificado (variável de ambiente NFE_PFX_SENHA ou pela tela de configurações).");
     }
 }
