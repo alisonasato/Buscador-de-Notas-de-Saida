@@ -13,6 +13,18 @@ public static class NfeXml
 
     public static bool ChaveValida(string? chave) => chave != null && Chave44.IsMatch(chave);
 
+    // Identificador de NFS-e (não existe chave de 44 dígitos): "NFSE-{cnpj prestador}-{município}-{número}".
+    private static readonly Regex IdNfse = new(@"^NFSE-[A-Za-z0-9._-]{1,70}$", RegexOptions.Compiled);
+
+    /// <summary>Identificador aceito como chave primária: chave de 44 dígitos ou id de NFS-e (seguro para nome de arquivo).</summary>
+    public static bool IdValido(string? id) => ChaveValida(id) || (id != null && IdNfse.IsMatch(id));
+
+    /// <summary>Modelo fiscal (55, 65, 57, 58, 59...) de uma chave de 44 dígitos.</summary>
+    public static string ModeloDaChave(string chave) => chave.Substring(20, 2);
+
+    /// <summary>Remove letras (prefixos "NFe", "CTe", "MDFe", "CFe") deixando só os 44 dígitos.</summary>
+    internal static string SoDigitos(string? s) => new string((s ?? "").Where(char.IsDigit).ToArray());
+
     /// <summary>Dígito verificador da chave (módulo 11, pesos 2..9 da direita para a esquerda sobre os 43 primeiros dígitos).</summary>
     public static int CalcularDv(string chave43)
     {
@@ -29,10 +41,10 @@ public static class NfeXml
     public static bool DigitoVerificadorOk(string chave) =>
         ChaveValida(chave) && CalcularDv(chave[..43]) == chave[43] - '0';
 
-    private static XElement? Primeiro(XContainer raiz, string nomeLocal) =>
+    internal static XElement? Primeiro(XContainer raiz, string nomeLocal) =>
         raiz.Descendants().FirstOrDefault(e => e.Name.LocalName == nomeLocal);
 
-    private static string? Texto(XContainer? raiz, string nomeLocal) =>
+    internal static string? Texto(XContainer? raiz, string nomeLocal) =>
         raiz == null ? null : Primeiro(raiz, nomeLocal)?.Value.Trim();
 
     /// <summary>Tipo do documento pelo elemento raiz: procNFe, NFe, resNFe, procEventoNFe, resEvento...</summary>
@@ -56,6 +68,7 @@ public static class NfeXml
         return new NotaSaida
         {
             ChaveAcesso = chave,
+            Tipo = TipoDoc.DoModelo(Texto(ide, "mod") ?? ModeloDaChave(chave)) is { } t && t is TipoDoc.Nfe or TipoDoc.Nfce ? t : TipoDoc.Nfe,
             CnpjEmitente = Texto(emit, "CNPJ") ?? Texto(emit, "CPF"),
             NumeroNota = Texto(ide, "nNF"),
             Serie = Texto(ide, "serie"),
@@ -88,13 +101,18 @@ public static class NfeXml
         };
     }
 
-    public static readonly string[] EventosCancelamento = { "110111", "110112" }; // cancelamento / cancelamento por substituição
+    /// <summary>Tipos de evento que cancelam: 110111 (cancelamento) em NF-e/NFC-e/CT-e/MDF-e; 110112 (por substituição) só em NF-e/NFC-e.</summary>
+    /// <remarks>No MDF-e o 110112 é ENCERRAMENTO, que não cancela nada.</remarks>
+    public static bool TipoCancelaDocumento(string chave, string tipoEvento) =>
+        tipoEvento == "110111" || (tipoEvento == "110112" && ModeloDaChave(chave) is "55" or "65");
 
-    /// <summary>Lê resEvento (resumo) ou procEventoNFe (evento completo). Retorna null se não for um evento reconhecível.</summary>
+    /// <summary>Lê eventos de NF-e (resEvento/procEventoNFe), CT-e (procEventoCTe), MDF-e (procEventoMDFe) e o cancelamento do CF-e SAT (CFeCanc).</summary>
     public static EventoNfe? LerEvento(XDocument doc)
     {
-        if (doc.Root?.Name.LocalName is not ("resEvento" or "procEventoNFe" or "evento" or "retEvento")) return null;
-        var chave = Texto(doc, "chNFe") ?? "";
+        var raiz = doc.Root?.Name.LocalName;
+        if (raiz == "CFeCanc") return LerCancelamentoCfe(doc);
+        if (raiz is not ("resEvento" or "procEventoNFe" or "evento" or "retEvento" or "procEventoCTe" or "procEventoMDFe")) return null;
+        var chave = Texto(doc, "chNFe") ?? Texto(doc, "chCTe") ?? Texto(doc, "chMDFe") ?? "";
         var tipo = Texto(doc, "tpEvento") ?? "";
         if (!ChaveValida(chave) || tipo.Length == 0) return null;
         _ = int.TryParse(Texto(doc, "nSeqEvento"), out var seq);
@@ -103,9 +121,18 @@ public static class NfeXml
             NormalizarData(Texto(doc, "dhEvento") ?? Texto(doc, "dhRegEvento")));
     }
 
-    /// <summary>Cancelamento válido: tipo 110111/110112 e (sem retorno de status, ou 135/155 = registrado/extemporâneo).</summary>
+    /// <summary>CF-e SAT cancelado: o XML CFeCanc traz em infCFe@chCanc a chave do CF-e original.</summary>
+    private static EventoNfe? LerCancelamentoCfe(XDocument doc)
+    {
+        var inf = Primeiro(doc, "infCFe");
+        var alvo = SoDigitos(inf?.Attribute("chCanc")?.Value);
+        if (!ChaveValida(alvo)) return null;
+        return new EventoNfe(alvo, "110111", 1, null, "Cancelamento de CF-e SAT", null);
+    }
+
+    /// <summary>Cancelamento válido: tipo que cancela aquele modelo e (sem retorno de status, ou 135/155 = registrado/extemporâneo).</summary>
     public static bool EhCancelamentoEfetivo(EventoNfe e) =>
-        EventosCancelamento.Contains(e.Tipo) && (e.CStat is null or "135" or "155");
+        TipoCancelaDocumento(e.Chave, e.Tipo) && (e.CStat is null or "135" or "155");
 
     // Layout da chave: cUF(2) AAMM(4) CNPJ(14) mod(2) serie(3) nNF(9) tpEmis(1) cNF(8) cDV(1)
     public static string CnpjDaChave(string chave) => chave.Substring(6, 14);

@@ -51,6 +51,25 @@ public class Armazenamento
         return caminho;
     }
 
+    /// <summary>
+    /// Grava XML de CT-e, MDF-e, CF-e SAT, NFS-e e NFC-e em {raiz}/{tipo}/{ano}/{mes}/{id}.xml (o ano/mês vêm da emissão).
+    /// NF-e continua em {raiz}/{ano}/{mes}/{chave}.xml (compatível com o que já foi importado).
+    /// </summary>
+    public string SalvarDocumento(string tipo, string id, string? dataEmissaoIso, byte[] dados)
+    {
+        if (!NfeXml.IdValido(id)) throw new ArgumentException("Identificador de documento inválido.", nameof(id));
+        if (!TipoDoc.Todos.Contains(tipo)) throw new ArgumentException("Tipo de documento inválido.", nameof(tipo));
+        if (tipo == TipoDoc.Nfe) return SalvarBytes(id, dados);
+
+        string ano = "0000", mes = "00";
+        if (dataEmissaoIso is { Length: >= 7 } d && d[..4].All(char.IsAsciiDigit) && d[5..7].All(char.IsAsciiDigit)) { ano = d[..4]; mes = d[5..7]; }
+        var pasta = Path.Combine(_raiz, tipo.ToLowerInvariant(), ano, mes);
+        Directory.CreateDirectory(pasta);
+        var caminho = Path.Combine(pasta, id + ".xml");
+        File.WriteAllBytes(caminho, dados);
+        return caminho;
+    }
+
     /// <summary>Copia o arquivo original (bytes intactos) para a estrutura {raiz}/{Ano}/{Mes}/{chave}.xml.</summary>
     public string Copiar(string chave, string arquivoOrigem)
     {

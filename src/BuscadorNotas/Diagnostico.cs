@@ -53,7 +53,7 @@ public static class Diagnostico
                         if (ev == null) { semLeitura++; break; }
                         if (NfeXml.CnpjDaChave(ev.Chave) == cfg.Cnpj)
                         {
-                            if (NfeXml.EventosCancelamento.Contains(ev.Tipo)) eventosCancelamento++; else outrosEventos++;
+                            if (NfeXml.TipoCancelaDocumento(ev.Chave, ev.Tipo)) eventosCancelamento++; else outrosEventos++;
                         }
                         break;
                     }

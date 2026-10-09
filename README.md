@@ -22,6 +22,23 @@ dotnet run --project src/BuscadorNotas -- buscar --de 2024-10-01 --ate 2024-10-3
 dotnet test
 ```
 
+## Tipos de documento
+
+| Tipo | Como entra | Cancelamento |
+|---|---|---|
+| NF-e (55) e NFC-e (65) | XML/ZIP na pasta de entrada ou linha de comando; **NF-e também pela sincronização com a Sefaz** (a confirmar) e pelo SPED (chaves) | evento 110111/110112 |
+| CT-e (57) e CT-e OS (67) | XML/ZIP | evento 110111 (`procEventoCTe`) |
+| MDF-e (58) | XML/ZIP | evento 110111 (`procEventoMDFe`); o 110112 é *encerramento* e **não** cancela |
+| CF-e SAT (59) | XML/ZIP | `CFeCanc` (aponta o original em `chCanc`) |
+| NFS-e | XML/ZIP, melhor esforço (ABRASF e padrão nacional) | só se o XML trouxer o cancelamento |
+
+- Só entram documentos **emitidos pelo seu CNPJ** (para NFS-e, o prestador). Pode filtrar por tipo na tela, na API (`?tipo=CTE`) e no CSV.
+- O **MDF-e** é um manifesto de transporte: fica fora da contagem e do faturamento do mês (o valor dele é o da carga). O painel mostra a contagem por tipo.
+- A **NFS-e** não tem chave de 44 dígitos: o identificador é `NFSE-{CNPJ do prestador}-{município}-{número}`. Cada arquivo deve ter uma NFS-e; para várias, use um ZIP.
+- XMLs de tipos novos ficam em `xmls\{tipo}\{ano}\{mês}\`; as NF-e continuam em `xmls\{ano}\{mês}\`.
+- **Não há busca automática** de CT-e, MDF-e, CF-e SAT e NFS-e (cada um tem serviço próprio da Sefaz ou da prefeitura, e não foi possível testar). Também não há importação desses tipos pelo SPED.
+- ⚠️ Os nomes dos elementos desses XMLs foram escritos **de memória** e testados só com XMLs montados à mão. Confirme com arquivos reais do seu emissor; a NFS-e varia muito entre municípios. Se algum for rejeitado ou ficar com campos vazios, mande um exemplo (sem dados sensíveis) para ajuste.
+
 ## Executável único (Windows)
 
 Um só arquivo, `BuscadorNotas.exe` (~50 MB): não exige instalar o .NET, traz a interface e o SQLite dentro dele.

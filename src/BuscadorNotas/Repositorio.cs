@@ -44,7 +44,8 @@ public class Repositorio
                 SituacaoSefaz TEXT,
                 Origem TEXT,
                 Tentativas INTEGER NOT NULL DEFAULT 0,
-                UltimoErro TEXT
+                UltimoErro TEXT,
+                Tipo TEXT NOT NULL DEFAULT 'NFE'
             );
             CREATE TABLE IF NOT EXISTS EventosNota (
                 ChaveAcesso TEXT NOT NULL,
@@ -80,6 +81,23 @@ public class Repositorio
             CREATE INDEX IF NOT EXISTS IX_Notas_Numero ON NotasSaidaBaixadas(NumeroNota);
             CREATE INDEX IF NOT EXISTS IX_Notas_Status ON NotasSaidaBaixadas(Status);
             """;
+        cmd.ExecuteNonQuery();
+        MigrarColunaTipo(c);
+    }
+
+    /// <summary>Bancos criados antes do suporte a outros documentos não têm a coluna Tipo: acrescenta (tudo que existe é NF-e).</summary>
+    private static void MigrarColunaTipo(SqliteConnection c)
+    {
+        bool existe = false;
+        using (var info = c.CreateCommand())
+        {
+            info.CommandText = "PRAGMA table_info(NotasSaidaBaixadas)";
+            using var r = info.ExecuteReader();
+            while (r.Read()) if (r.GetString(1) == "Tipo") existe = true;
+        }
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = (existe ? "" : "ALTER TABLE NotasSaidaBaixadas ADD COLUMN Tipo TEXT NOT NULL DEFAULT 'NFE';")
+                          + "CREATE INDEX IF NOT EXISTS IX_Notas_Tipo ON NotasSaidaBaixadas(Tipo);";
         cmd.ExecuteNonQuery();
     }
 
@@ -118,16 +136,16 @@ public class Repositorio
         cmd.CommandText = """
             INSERT INTO NotasSaidaBaixadas
               (ChaveAcesso, CnpjEmitente, NumeroNota, Serie, DataEmissao, CnpjCpfDestinatario,
-               NomeDestinatario, ValorTotal, CaminhoXmlLocal, Status, SituacaoSefaz, Origem, Tentativas, UltimoErro)
+               NomeDestinatario, ValorTotal, CaminhoXmlLocal, Status, SituacaoSefaz, Origem, Tentativas, UltimoErro, Tipo)
             VALUES
-              ($chave, $emit, $num, $serie, $data, $dest, $nome, $valor, $caminho, $status, $sit, $origem, 0, NULL)
+              ($chave, $emit, $num, $serie, $data, $dest, $nome, $valor, $caminho, $status, $sit, $origem, 0, NULL, $tipo)
             ON CONFLICT(ChaveAcesso) DO UPDATE SET
               CnpjEmitente = excluded.CnpjEmitente, NumeroNota = excluded.NumeroNota, Serie = excluded.Serie,
               DataEmissao = excluded.DataEmissao, CnpjCpfDestinatario = excluded.CnpjCpfDestinatario,
               NomeDestinatario = excluded.NomeDestinatario, ValorTotal = excluded.ValorTotal,
               CaminhoXmlLocal = excluded.CaminhoXmlLocal, Status = excluded.Status,
               SituacaoSefaz = COALESCE(excluded.SituacaoSefaz, SituacaoSefaz),
-              Origem = excluded.Origem, UltimoErro = NULL
+              Origem = excluded.Origem, UltimoErro = NULL, Tipo = excluded.Tipo
             """;
         Preencher(cmd, n);
         cmd.ExecuteNonQuery();
@@ -142,9 +160,9 @@ public class Repositorio
         cmd.CommandText = """
             INSERT OR IGNORE INTO NotasSaidaBaixadas
               (ChaveAcesso, CnpjEmitente, NumeroNota, Serie, DataEmissao, CnpjCpfDestinatario,
-               NomeDestinatario, ValorTotal, CaminhoXmlLocal, Status, SituacaoSefaz, Origem, Tentativas, UltimoErro)
+               NomeDestinatario, ValorTotal, CaminhoXmlLocal, Status, SituacaoSefaz, Origem, Tentativas, UltimoErro, Tipo)
             VALUES
-              ($chave, $emit, $num, $serie, $data, $dest, $nome, $valor, $caminho, $status, $sit, $origem, 0, NULL)
+              ($chave, $emit, $num, $serie, $data, $dest, $nome, $valor, $caminho, $status, $sit, $origem, 0, NULL, $tipo)
             """;
         Preencher(cmd, n);
         var inseriu = cmd.ExecuteNonQuery() > 0;
@@ -196,7 +214,8 @@ public class Repositorio
             UPDATE NotasSaidaBaixadas SET SituacaoSefaz = $sit
             WHERE ChaveAcesso = $k
               AND EXISTS (SELECT 1 FROM EventosNota
-                          WHERE ChaveAcesso = $k AND TipoEvento IN ('110111', '110112')
+                          WHERE ChaveAcesso = $k
+                            AND (TipoEvento = '110111' OR (TipoEvento = '110112' AND substr(ChaveAcesso, 21, 2) IN ('55', '65')))
                             AND (CStat IS NULL OR CStat IN ('135', '155')))
             """;
         cmd.Parameters.AddWithValue("$sit", Situacao.CanceladaPorEvento);
@@ -218,6 +237,7 @@ public class Repositorio
         cmd.Parameters.AddWithValue("$status", n.Status);
         cmd.Parameters.AddWithValue("$sit", (object?)n.SituacaoSefaz ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$origem", (object?)n.Origem ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$tipo", n.Tipo);
     }
 
     public List<string> ListarChavesPendentes(int limite)
@@ -256,7 +276,7 @@ public class Repositorio
     // ---------- Busca ----------
 
     private const string ColunasNota = "ChaveAcesso, CnpjEmitente, NumeroNota, Serie, DataEmissao, CnpjCpfDestinatario, " +
-        "NomeDestinatario, ValorTotal, CaminhoXmlLocal, Status, SituacaoSefaz, Origem, Tentativas, UltimoErro";
+        "NomeDestinatario, ValorTotal, CaminhoXmlLocal, Status, SituacaoSefaz, Origem, Tentativas, UltimoErro, Tipo";
 
     private static string EscaparLike(string s) => s.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
 
@@ -278,6 +298,7 @@ public class Repositorio
         if (!string.IsNullOrWhiteSpace(f.Destinatario))
             Add("(NomeDestinatario LIKE $dest ESCAPE '\\' OR CnpjCpfDestinatario LIKE $dest ESCAPE '\\')", "$dest", $"%{EscaparLike(f.Destinatario.Trim())}%");
         if (!string.IsNullOrWhiteSpace(f.Status)) Add("Status = $status", "$status", f.Status.Trim().ToUpperInvariant());
+        if (!string.IsNullOrWhiteSpace(f.Tipo)) Add("Tipo = $tipo", "$tipo", f.Tipo.Trim().ToUpperInvariant());
         if (f.ValorMin.HasValue) Add("ValorTotal >= $vmin", "$vmin", (double)f.ValorMin.Value);
         if (f.ValorMax.HasValue) Add("ValorTotal <= $vmax", "$vmax", (double)f.ValorMax.Value);
 
@@ -325,6 +346,7 @@ public class Repositorio
         Origem = r.IsDBNull(11) ? null : r.GetString(11),
         Tentativas = r.GetInt32(12),
         UltimoErro = r.IsDBNull(13) ? null : r.GetString(13),
+        Tipo = r.GetString(14),
     };
 
     public List<NotaSaida> Buscar(FiltroBusca f)
@@ -381,20 +403,39 @@ public class Repositorio
     public ResumoDashboard ObterResumo(string mes)
     {
         using var c = Abrir();
-        using var cmd = c.CreateCommand();
-        cmd.CommandText = $"""
-            SELECT
-              COALESCE(SUM(CASE WHEN DataEmissao LIKE $mes AND NOT ({Aspas(Situacao.PrefixosCancelada)}) THEN 1 ELSE 0 END), 0),
-              COALESCE(SUM(CASE WHEN DataEmissao LIKE $mes AND NOT ({Aspas(Situacao.PrefixosCancelada)}) THEN ValorTotal ELSE 0 END), 0),
-              COALESCE(SUM(CASE WHEN Status = 'BAIXADO' THEN 1 ELSE 0 END), 0),
-              COALESCE(SUM(CASE WHEN Status <> 'BAIXADO' THEN 1 ELSE 0 END), 0),
-              COUNT(*)
-            FROM NotasSaidaBaixadas
-            """;
-        cmd.Parameters.AddWithValue("$mes", mes + "%");
-        using var r = cmd.ExecuteReader();
-        r.Read();
-        return new ResumoDashboard(mes, r.GetInt32(0), (decimal)r.GetDouble(1), r.GetInt32(2), r.GetInt32(3), r.GetInt32(4));
+        int notas, baixados, pendentes, total;
+        decimal valor;
+        using (var cmd = c.CreateCommand())
+        {
+            // MDF-e é manifesto de transporte (o valor é o da carga): não entra na contagem nem no faturamento.
+            cmd.CommandText = $"""
+                SELECT
+                  COALESCE(SUM(CASE WHEN DataEmissao LIKE $mes AND Tipo <> 'MDFE' AND NOT ({Aspas(Situacao.PrefixosCancelada)}) THEN 1 ELSE 0 END), 0),
+                  COALESCE(SUM(CASE WHEN DataEmissao LIKE $mes AND Tipo <> 'MDFE' AND NOT ({Aspas(Situacao.PrefixosCancelada)}) THEN ValorTotal ELSE 0 END), 0),
+                  COALESCE(SUM(CASE WHEN Status = 'BAIXADO' THEN 1 ELSE 0 END), 0),
+                  COALESCE(SUM(CASE WHEN Status <> 'BAIXADO' THEN 1 ELSE 0 END), 0),
+                  COUNT(*)
+                FROM NotasSaidaBaixadas
+                """;
+            cmd.Parameters.AddWithValue("$mes", mes + "%");
+            using var r = cmd.ExecuteReader();
+            r.Read();
+            notas = r.GetInt32(0); valor = (decimal)r.GetDouble(1); baixados = r.GetInt32(2); pendentes = r.GetInt32(3); total = r.GetInt32(4);
+        }
+
+        var porTipo = new List<ContagemTipo>();
+        using (var cmd = c.CreateCommand())
+        {
+            cmd.CommandText = $"""
+                SELECT Tipo, COUNT(*), COALESCE(SUM(ValorTotal), 0) FROM NotasSaidaBaixadas
+                WHERE DataEmissao LIKE $mes AND NOT ({Aspas(Situacao.PrefixosCancelada)})
+                GROUP BY Tipo ORDER BY COUNT(*) DESC
+                """;
+            cmd.Parameters.AddWithValue("$mes", mes + "%");
+            using var r = cmd.ExecuteReader();
+            while (r.Read()) porTipo.Add(new ContagemTipo(r.GetString(0), r.GetInt32(1), (decimal)r.GetDouble(2)));
+        }
+        return new ResumoDashboard(mes, notas, valor, baixados, pendentes, total, porTipo);
     }
 
     // ---------- Histórico de sincronização ----------

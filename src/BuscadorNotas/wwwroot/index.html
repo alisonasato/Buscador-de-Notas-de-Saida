@@ -103,10 +103,17 @@
         </div>
 
         <!-- FilterBar -->
-        <form id="filtros" class="card grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-6" role="search" aria-label="Filtros de notas">
+        <form id="filtros" class="card grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-7" role="search" aria-label="Filtros de notas">
           <div class="lg:col-span-2">
-            <label class="label" for="f-busca">Chave, número, nome ou CNPJ</label>
+            <label class="label" for="f-busca">Chave/identificador, número, nome ou CNPJ</label>
             <input id="f-busca" class="field" type="search" placeholder="Ex.: 3524… ou Comercial Alfa" autocomplete="off" />
+          </div>
+          <div>
+            <label class="label" for="f-tipo">Tipo de documento</label>
+            <select id="f-tipo" class="field">
+              <option value="">Todos</option><option value="NFE">NF-e</option><option value="NFCE">NFC-e</option><option value="CTE">CT-e</option>
+              <option value="MDFE">MDF-e</option><option value="CFE">CF-e SAT</option><option value="NFSE">NFS-e</option>
+            </select>
           </div>
           <div><label class="label" for="f-de">Emissão de</label><input id="f-de" class="field" type="date" /></div>
           <div><label class="label" for="f-ate">até</label><input id="f-ate" class="field" type="date" /></div>
@@ -122,7 +129,7 @@
               <option value="">Todos</option><option value="BAIXADO">Baixado</option><option value="PENDENTE">Pendente</option>
             </select>
           </div>
-          <div class="flex items-end gap-2 sm:col-span-2 lg:col-span-6 lg:justify-end">
+          <div class="flex items-end gap-2 sm:col-span-2 lg:col-span-7 lg:justify-end">
             <button type="button" id="btn-limpar" class="btn-ghost">Limpar filtros</button>
           </div>
         </form>
@@ -148,8 +155,8 @@
                 <tr>
                   <th class="th w-10"><input id="chk-todos" type="checkbox" class="h-4 w-4 rounded border-slate-300" aria-label="Selecionar todas desta página" /></th>
                   <th class="th">Nº / Série</th>
-                  <th class="th">Chave de acesso</th>
-                  <th class="th">Destinatário</th>
+                  <th class="th">Chave / identificador</th>
+                  <th class="th">Destinatário / tomador</th>
                   <th class="th">Emissão</th>
                   <th class="th text-right">Valor</th>
                   <th class="th">Situação</th>
@@ -387,7 +394,7 @@ async function carregarDashboard() {
     S.dash = d; S.sync = d.sync;
     renderKpis(d); renderSync();
     $("#ultimas").innerHTML = ult.itens.length ? ult.itens.map(n => `
-      <li class="flex items-center justify-between gap-3 py-2.5 text-sm"><div class="min-w-0"><p class="truncate font-medium">NF ${esc(n.numero)} · ${esc(n.destinatarioNome || docFmt(n.destinatarioDoc) || "sem destinatário")}</p>
+      <li class="flex items-center justify-between gap-3 py-2.5 text-sm"><div class="min-w-0"><p class="truncate font-medium">${ROTULO_TIPO[n.tipo] || "NF"} ${esc(n.numero)} · ${esc(n.destinatarioNome || docFmt(n.destinatarioDoc) || "sem destinatário")}</p>
       <p class="text-xs text-slate-500 dark:text-slate-400">${dataBR(n.emissao)}</p></div><span class="tabular-nums">${brl(n.valor)}</span></li>`).join("")
       : `<li class="py-6 text-center text-sm text-slate-500 dark:text-slate-400">Nenhuma nota ainda. Rode uma sincronização ou importe XMLs/SPED pela linha de comando.</li>`;
     $("#historico-sync").innerHTML = d.historico.length ? d.historico.map(r => {
@@ -403,8 +410,8 @@ function renderKpis(d) {
   const prox = s.proximaExecucao ? "próxima: " + dataHora(s.proximaExecucao) : s.automatica ? "—" : "automática desligada";
   const [ano, mes] = r.mes.split("-");
   const cards = [
-    ["Notas emitidas no mês", String(r.notasNoMes), `${mes}/${ano} (exclui canceladas)`],
-    ["Valor faturado no mês", brl(r.valorNoMes), "soma das notas do mês, exceto canceladas"],
+    ["Documentos emitidos no mês", String(r.notasNoMes), `${mes}/${ano} · sem canceladas e sem MDF-e` + (r.porTipo.length ? "<br>" + r.porTipo.map(t => `${ROTULO_TIPO[t.tipo] || t.tipo}: ${t.quantidade}`).join(" · ") : "")],
+    ["Valor faturado no mês", brl(r.valorNoMes), "soma dos documentos do mês, exceto cancelados e MDF-e (cujo valor é o da carga)"],
     ["XML baixado / pendente", `${r.xmlBaixados} <span class="text-slate-400">/</span> ${r.xmlPendentes}`,
       r.xmlPendentes ? `<button class="font-medium text-blue-600 hover:underline dark:text-blue-400" data-filtra-pend>ver pendentes</button>` : "tudo baixado"],
     ["Última sincronização", ult, prox],
@@ -423,15 +430,16 @@ const CHIP_SIT = {
   DENEGADA: "bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
   DESCONHECIDA: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
 };
+const ROTULO_TIPO = { NFE: "NF-e", NFCE: "NFC-e", CTE: "CT-e", MDFE: "MDF-e", CFE: "CF-e SAT", NFSE: "NFS-e" };
 const ROTULO_SIT = { AUTORIZADA: "Autorizada", CANCELADA: "Cancelada", DENEGADA: "Denegada", DESCONHECIDA: "Sem informação" };
 
 function lerFiltros() {
-  S.filtro = { busca: $("#f-busca").value.trim(), de: $("#f-de").value, ate: $("#f-ate").value, situacao: $("#f-sit").value, xml: $("#f-xml").value };
+  S.filtro = { busca: $("#f-busca").value.trim(), de: $("#f-de").value, ate: $("#f-ate").value, situacao: $("#f-sit").value, xml: $("#f-xml").value, tipo: $("#f-tipo").value };
   S.pag = 1; carregarNotas();
 }
 function queryFiltros() {
   const q = new URLSearchParams();
-  for (const k of ["busca", "de", "ate", "situacao", "xml"]) if (S.filtro[k]) q.set(k, S.filtro[k]);
+  for (const k of ["busca", "de", "ate", "situacao", "xml", "tipo"]) if (S.filtro[k]) q.set(k, S.filtro[k]);
   return q;
 }
 let _req = 0;
@@ -457,10 +465,10 @@ function renderTabela() {
   $("#corpo").innerHTML = S.itens.map(n => `
     <tr class="${S.sel.has(n.chave) ? "bg-blue-50/60 dark:bg-blue-950/30" : "hover:bg-slate-50 dark:hover:bg-slate-800/50"}">
       <td class="td"><input type="checkbox" class="chk h-4 w-4 rounded border-slate-300" data-k="${n.chave}" ${S.sel.has(n.chave) ? "checked" : ""} aria-label="Selecionar NF ${esc(n.numero)}" /></td>
-      <td class="td whitespace-nowrap font-medium tabular-nums">${esc(n.numero)} <span class="font-normal text-slate-400">/ ${esc(n.serie)}</span></td>
+      <td class="td whitespace-nowrap font-medium tabular-nums">${esc(n.numero)} <span class="font-normal text-slate-400">/ ${esc(n.serie)}</span><div class="text-[11px] font-normal uppercase tracking-wide text-slate-500 dark:text-slate-400">${ROTULO_TIPO[n.tipo] || esc(n.tipo)}</div></td>
       <td class="td"><div class="flex items-center gap-1">
-        <code class="font-mono text-xs text-slate-600 dark:text-slate-300" title="${n.chave}">${n.chave.slice(0, 6)}…${n.chave.slice(-8)}</code>
-        <button class="icon-btn" data-copiar="${n.chave}" aria-label="Copiar chave da NF ${esc(n.numero)}" title="Copiar chave">${icon("copy")}</button></div></td>
+        <code class="font-mono text-xs text-slate-600 dark:text-slate-300" title="${n.chave}">${n.chave.length > 20 ? n.chave.slice(0, 6) + "…" + n.chave.slice(-8) : esc(n.chave)}</code>
+        <button class="icon-btn" data-copiar="${n.chave}" aria-label="Copiar identificador do documento ${esc(n.numero)}" title="Copiar chave / identificador">${icon("copy")}</button></div></td>
       <td class="td"><p class="max-w-[14rem] truncate font-medium">${esc(n.destinatarioNome || "—")}</p><p class="font-mono text-xs text-slate-500 dark:text-slate-400">${esc(docFmt(n.destinatarioDoc))}</p></td>
       <td class="td whitespace-nowrap tabular-nums">${dataBR(n.emissao)}</td>
       <td class="td whitespace-nowrap text-right font-medium tabular-nums">${brl(n.valor)}</td>
@@ -515,7 +523,7 @@ $("#btn-desmarcar").onclick = () => { S.sel.clear(); renderTabela(); };
 $("#pag-ant").onclick = () => { S.pag--; carregarNotas(); };
 $("#pag-prox").onclick = () => { S.pag++; carregarNotas(); };
 $("#tam-pag").onchange = e => { S.tam = +e.target.value; S.pag = 1; carregarNotas(); };
-["f-busca", "f-de", "f-ate", "f-sit", "f-xml"].forEach(id => $("#" + id).addEventListener(id === "f-busca" ? "input" : "change", debounceFiltro));
+["f-busca", "f-de", "f-ate", "f-sit", "f-xml", "f-tipo"].forEach(id => $("#" + id).addEventListener(id === "f-busca" ? "input" : "change", debounceFiltro));
 let _t; function debounceFiltro() { clearTimeout(_t); _t = setTimeout(lerFiltros, 300); }
 $("#btn-limpar").onclick = () => { $("#filtros").reset(); lerFiltros(); };
 $("#filtros").addEventListener("submit", e => e.preventDefault());
@@ -523,8 +531,8 @@ $("#filtros").addEventListener("submit", e => e.preventDefault());
 /* ações em lote */
 function csvLocal(linhas) {
   const cel = v => { v = String(v ?? ""); if (/^[=+\-@\t\r]/.test(v)) v = "'" + v; return `"${v.replace(/"/g, '""')}"`; };
-  const cab = ["Numero", "Serie", "Chave", "Destinatario", "Documento", "Emissao", "Valor", "Situacao", "XML"];
-  return "﻿" + [cab, ...linhas.map(n => [n.numero, n.serie, n.chave, n.destinatarioNome, n.destinatarioDoc, (n.emissao || "").slice(0, 10),
+  const cab = ["Tipo", "Numero", "Serie", "Chave", "Destinatario", "Documento", "Emissao", "Valor", "Situacao", "XML"];
+  return "﻿" + [cab, ...linhas.map(n => [ROTULO_TIPO[n.tipo] || n.tipo, n.numero, n.serie, n.chave, n.destinatarioNome, n.destinatarioDoc, (n.emissao || "").slice(0, 10),
     n.valor == null ? "" : Number(n.valor).toFixed(2).replace(".", ","), n.situacao, n.xml])].map(l => l.map(cel).join(";")).join("\r\n");
 }
 $("#btn-csv-sel").onclick = () => { const l = [...S.sel.values()]; salvarBlob(new Blob([csvLocal(l)], { type: "text/csv;charset=utf-8" }), "notas-selecionadas.csv"); toast(`CSV com ${l.length} notas gerado`); };
@@ -546,10 +554,10 @@ $("#btn-zip").onclick = async () => {
 let _foco;
 function abrirDrawer(chave) {
   const n = S.itens.find(x => x.chave === chave); if (!n) return; _foco = document.activeElement;
-  $("#drawer-titulo").textContent = `NF ${n.numero} · série ${n.serie}`;
+  $("#drawer-titulo").textContent = `${ROTULO_TIPO[n.tipo] || n.tipo} ${n.numero} · série ${n.serie}`;
   const linha = (k, v) => `<div><dt class="label">${k}</dt><dd>${v}</dd></div>`;
-  $("#drawer-corpo").innerHTML = linha("Chave de acesso", `<code class="break-all font-mono text-xs">${n.chave}</code>`) +
-    linha("Destinatário", `${esc(n.destinatarioNome || "—")}<br><span class="font-mono text-xs text-slate-500">${esc(docFmt(n.destinatarioDoc))}</span>`) +
+  $("#drawer-corpo").innerHTML = linha("Chave / identificador", `<code class="break-all font-mono text-xs">${n.chave}</code>`) +
+    linha("Destinatário / tomador", `${esc(n.destinatarioNome || "—")}<br><span class="font-mono text-xs text-slate-500">${esc(docFmt(n.destinatarioDoc))}</span>`) +
     linha("Emissão", dataBR(n.emissao)) + linha("Valor total", brl(n.valor)) +
     linha("Situação", `<span class="chip ${CHIP_SIT[n.situacao]}">${ROTULO_SIT[n.situacao]}</span>${n.situacaoCodigo ? ` <span class="text-xs text-slate-500">(${esc(n.situacaoCodigo)})</span>` : ""}`) +
     linha("XML local", n.xml === "BAIXADO" ? "Baixado" : "Pendente — ainda não obtido") + linha("Origem", esc(n.origem || "—"));

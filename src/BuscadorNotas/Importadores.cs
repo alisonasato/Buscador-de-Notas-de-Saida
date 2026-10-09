@@ -70,7 +70,10 @@ public partial class Robo
 
     // ---------- Importar XMLs ----------
 
-    /// <summary>Importa um XML (NF-e ou evento de cancelamento) a partir dos bytes originais, que são guardados intactos.</summary>
+    /// <summary>
+    /// Importa um XML de NF-e/NFC-e/CT-e/MDF-e/CF-e SAT/NFS-e ou um evento de cancelamento, a partir dos bytes originais
+    /// (guardados intactos). Só documentos emitidos pelo CNPJ configurado, salvo <paramref name="incluirOutrosCnpjs"/>.
+    /// </summary>
     public ResultadoArquivo ImportarXmlBytes(byte[] dados, bool incluirOutrosCnpjs)
     {
         XDocument doc;
@@ -81,31 +84,31 @@ public partial class Robo
         }
         catch (System.Xml.XmlException ex) { return new(Desfecho.Rejeitado, $"XML inválido ({ex.Message})"); }
 
-        var tipo = NfeXml.TipoDocumento(doc);
         bool NossoCnpj(string? cnpj) => incluirOutrosCnpjs || _cfg.Cnpj.Length != 14 || cnpj == _cfg.Cnpj;
 
-        if (tipo is "nfeProc" or "NFe")
-        {
-            var nota = NfeXml.LerNotaCompleta(doc, "XML");
-            if (nota == null) return new(Desfecho.Rejeitado, "NF-e sem chave de acesso válida");
-            if (!NossoCnpj(nota.CnpjEmitente)) return new(Desfecho.Ignorado, $"emitente {nota.CnpjEmitente} não é o seu CNPJ");
-            var existia = _repo.ObterNota(nota.ChaveAcesso)?.Status == StatusNota.Baixado;
-            nota.CaminhoXmlLocal = _storage.SalvarBytes(nota.ChaveAcesso, dados);
-            _repo.SalvarNotaCompleta(nota);
-            return new(Desfecho.Importado, $"NF {nota.NumeroNota}", Novo: !existia);
-        }
-
-        if (tipo is "resEvento" or "procEventoNFe")
+        // Eventos de cancelamento (NF-e, CT-e, MDF-e) e CFeCanc
+        var raiz = NfeXml.TipoDocumento(doc);
+        if (raiz is "resEvento" or "procEventoNFe" or "procEventoCTe" or "procEventoMDFe" or "CFeCanc")
         {
             var ev = NfeXml.LerEvento(doc);
             if (ev == null) return new(Desfecho.Rejeitado, "evento sem chave/tipo válidos");
-            if (!NossoCnpj(NfeXml.CnpjDaChave(ev.Chave))) return new(Desfecho.Ignorado, "evento de nota de outro emitente");
-            if (!NfeXml.EventosCancelamento.Contains(ev.Tipo)) return new(Desfecho.Ignorado, $"evento {ev.Tipo} não é tratado (só cancelamento)");
+            if (!NossoCnpj(NfeXml.CnpjDaChave(ev.Chave))) return new(Desfecho.Ignorado, "evento de documento de outro emitente");
+            if (!NfeXml.TipoCancelaDocumento(ev.Chave, ev.Tipo)) return new(Desfecho.Ignorado, $"evento {ev.Tipo} não é tratado (só cancelamento)");
             var novo = _repo.RegistrarEvento(ev, "XML");
-            return new(Desfecho.Importado, $"cancelamento da NF {NfeXml.NumeroDaChave(ev.Chave)}", Novo: novo);
+            return new(Desfecho.Importado, $"cancelamento do documento {NfeXml.NumeroDaChave(ev.Chave)}", Novo: novo);
         }
 
-        return new(Desfecho.Ignorado, $"não é uma NF-e (raiz '{tipo}')");
+        var tipoDoc = DocumentosFiscais.Identificar(doc);
+        if (tipoDoc == null) return new(Desfecho.Ignorado, $"não é um documento fiscal reconhecido (raiz '{raiz}')");
+
+        var nota = DocumentosFiscais.Ler(doc, "XML");
+        if (nota == null) return new(Desfecho.Rejeitado, $"{TipoDoc.Rotulo(tipoDoc)} sem identificador válido ou em layout não reconhecido");
+        if (!NossoCnpj(nota.CnpjEmitente)) return new(Desfecho.Ignorado, $"emitente {nota.CnpjEmitente} não é o seu CNPJ");
+
+        var existia = _repo.ObterNota(nota.ChaveAcesso)?.Status == StatusNota.Baixado;
+        nota.CaminhoXmlLocal = _storage.SalvarDocumento(nota.Tipo, nota.ChaveAcesso, nota.DataEmissao, dados);
+        _repo.SalvarNotaCompleta(nota);
+        return new(Desfecho.Importado, $"{TipoDoc.Rotulo(nota.Tipo)} {nota.NumeroNota}", Novo: !existia);
     }
 
     public ResultadoImportacao ImportarXmls(string pasta, bool incluirOutrosCnpjs)

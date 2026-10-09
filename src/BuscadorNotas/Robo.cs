@@ -145,7 +145,7 @@ public partial class Robo
                 var ev = NfeXml.LerEvento(doc);
                 // Só eventos de notas emitidas por nós; o CNPJ vem da própria chave de acesso.
                 if (ev == null || NfeXml.CnpjDaChave(ev.Chave) != _cfg.Cnpj) return false;
-                if (!NfeXml.EventosCancelamento.Contains(ev.Tipo)) return false; // CC-e e demais: não tratados
+                if (!NfeXml.TipoCancelaDocumento(ev.Chave, ev.Tipo)) return false; // CC-e e demais: não tratados
                 if (_repo.RegistrarEvento(ev, "NSU"))
                     Console.WriteLine($"  NSU {d.Nsu}: evento {ev.Tipo} (cancelamento) da NF-e {NfeXml.NumeroDaChave(ev.Chave)}.");
                 return false; // não é nota nova
@@ -169,6 +169,7 @@ public partial class Robo
                 var inserida = _repo.InserirSeNaoExiste(new NotaSaida
                 {
                     ChaveAcesso = n.Chave,
+                    Tipo = TipoDoc.DoModelo(NfeXml.ModeloDaChave(n.Chave)) ?? TipoDoc.Nfe,
                     CnpjEmitente = NfeXml.CnpjDaChave(n.Chave),
                     NumeroNota = n.NumeroDoc.TrimStart('0') is { Length: > 0 } s ? s : "0",
                     Serie = n.Serie.TrimStart('0') is { Length: > 0 } sr ? sr : "0",

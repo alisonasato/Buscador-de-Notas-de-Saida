@@ -139,6 +139,7 @@ public static class ApiServer
     private static object Dto(NotaSaida n) => new
     {
         chave = n.ChaveAcesso,
+        tipo = n.Tipo,
         numero = n.NumeroNota,
         serie = n.Serie,
         destinatarioNome = n.NomeDestinatario,
@@ -155,7 +156,7 @@ public static class ApiServer
     /// <summary>Lê e valida os filtros da query string. Devolve a mensagem de erro, se houver.</summary>
     private static string? LerFiltro(IQueryCollection q, out FiltroBusca f)
     {
-        f = new FiltroBusca { Busca = q["busca"], Situacao = q["situacao"], Xml = q["xml"] };
+        f = new FiltroBusca { Busca = q["busca"], Situacao = q["situacao"], Xml = q["xml"], Tipo = q["tipo"] };
 
         static bool DataOk(string? s) => DateTime.TryParseExact(s, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _);
         foreach (var (nome, valor) in new[] { ("de", (string?)q["de"]), ("ate", (string?)q["ate"]) })
@@ -165,6 +166,8 @@ public static class ApiServer
         if (!string.IsNullOrEmpty(f.Situacao) &&
             !new[] { Situacao.Autorizada, Situacao.Cancelada, Situacao.Denegada, Situacao.Desconhecida }.Contains(f.Situacao.ToUpperInvariant()))
             return "Parâmetro 'situacao' inválido.";
+        if (!string.IsNullOrEmpty(f.Tipo) && !TipoDoc.Todos.Contains(f.Tipo.ToUpperInvariant()))
+            return "Parâmetro 'tipo' inválido (NFE, NFCE, CTE, MDFE, CFE ou NFSE).";
         if (!string.IsNullOrEmpty(f.Xml) && f.Xml.ToUpperInvariant() is not ("BAIXADO" or "PENDENTE"))
             return "Parâmetro 'xml' deve ser BAIXADO ou PENDENTE.";
         return null;
@@ -197,14 +200,14 @@ public static class ApiServer
 
             var pt = CultureInfo.GetCultureInfo("pt-BR");
             var sb = new StringBuilder("﻿");
-            sb.Append("Numero;Serie;Chave;Destinatario;Documento;Emissao;Valor;Situacao;XML\r\n");
+            sb.Append("Tipo;Numero;Serie;Chave;Destinatario;Documento;Emissao;Valor;Situacao;XML\r\n");
             const int lote = 1000;
             for (int off = 0; off < MaxLinhasCsv; off += lote)
             {
                 f.Limite = lote; f.Offset = off;
                 var itens = repo.Buscar(f);
                 foreach (var n in itens)
-                    sb.Append(string.Join(';', Cel(n.NumeroNota), Cel(n.Serie), Cel(n.ChaveAcesso), Cel(n.NomeDestinatario), Cel(n.CnpjCpfDestinatario),
+                    sb.Append(string.Join(';', Cel(TipoDoc.Rotulo(n.Tipo)), Cel(n.NumeroNota), Cel(n.Serie), Cel(n.ChaveAcesso), Cel(n.NomeDestinatario), Cel(n.CnpjCpfDestinatario),
                         Cel(n.DataEmissao is { Length: >= 10 } d ? d[..10] : ""), n.ValorTotal?.ToString("F2", pt) ?? "",
                         Situacao.Classificar(n.SituacaoSefaz), n.Status == StatusNota.Baixado ? "BAIXADO" : "PENDENTE")).Append("\r\n");
                 if (itens.Count < lote) break;
@@ -214,7 +217,7 @@ public static class ApiServer
 
         api.MapPost("/notas/zip", (ZipRequisicao body, HttpResponse resp) =>
         {
-            var chaves = (body.Chaves ?? new()).Where(NfeXml.ChaveValida).Distinct().ToList();
+            var chaves = (body.Chaves ?? new()).Where(NfeXml.IdValido).Distinct().ToList();
             if (chaves.Count == 0) return Results.BadRequest(new { erro = "Informe ao menos uma chave válida." });
             if (chaves.Count > MaxChavesZip) return Results.BadRequest(new { erro = $"Máximo de {MaxChavesZip} notas por ZIP." });
 
@@ -237,14 +240,14 @@ public static class ApiServer
 
         api.MapGet("/notas/{chave}", (string chave) =>
         {
-            if (!NfeXml.ChaveValida(chave)) return Results.BadRequest(new { erro = "Chave inválida." });
+            if (!NfeXml.IdValido(chave)) return Results.BadRequest(new { erro = "Identificador inválido." });
             var n = repo.ObterNota(chave);
             return n == null ? Results.NotFound(new { erro = "Nota não encontrada." }) : Results.Ok(Dto(n));
         });
 
         api.MapGet("/notas/{chave}/xml", (string chave) =>
         {
-            if (!NfeXml.ChaveValida(chave)) return Results.BadRequest(new { erro = "Chave inválida." });
+            if (!NfeXml.IdValido(chave)) return Results.BadRequest(new { erro = "Identificador inválido." });
             var n = repo.ObterNota(chave);
             if (n == null) return Results.NotFound(new { erro = "Nota não encontrada." });
             var caminho = storage.ResolverSeguro(n.CaminhoXmlLocal);

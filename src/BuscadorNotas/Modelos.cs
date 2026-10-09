@@ -9,8 +9,28 @@ public static class StatusNota
     public const string Erro = "ERRO";
 }
 
+/// <summary>Tipos de documento fiscal tratados. NFE e NFCE compartilham o layout; os demais têm leitor próprio.</summary>
+public static class TipoDoc
+{
+    public const string Nfe = "NFE", Nfce = "NFCE", Cte = "CTE", Mdfe = "MDFE", Cfe = "CFE", Nfse = "NFSE";
+    public static readonly string[] Todos = { Nfe, Nfce, Cte, Mdfe, Cfe, Nfse };
+
+    public static string Rotulo(string tipo) => tipo switch
+    {
+        Nfe => "NF-e", Nfce => "NFC-e", Cte => "CT-e", Mdfe => "MDF-e", Cfe => "CF-e SAT", Nfse => "NFS-e", _ => tipo,
+    };
+
+    /// <summary>Modelo fiscal (2 dígitos, posições 20-21 da chave) → tipo.</summary>
+    public static string? DoModelo(string? modelo) => modelo switch
+    {
+        "55" => Nfe, "65" => Nfce, "57" or "67" => Cte, "58" => Mdfe, "59" => Cfe, _ => null,
+    };
+}
+
 public class NotaSaida
 {
+    /// <summary>NFE | NFCE | CTE | MDFE | CFE | NFSE (ver <see cref="TipoDoc"/>).</summary>
+    public string Tipo { get; set; } = TipoDoc.Nfe;
     public string ChaveAcesso { get; set; } = "";
     public string? CnpjEmitente { get; set; }
     public string? NumeroNota { get; set; }
@@ -47,13 +67,19 @@ public class FiltroBusca
     public string? Situacao { get; set; }
     /// <summary>BAIXADO (tem XML local) | PENDENTE (qualquer outro status, sem XML).</summary>
     public string? Xml { get; set; }
+    /// <summary>NFE | NFCE | CTE | MDFE | CFE | NFSE.</summary>
+    public string? Tipo { get; set; }
 }
 
 public record ImportacaoRegistro(string Quando, string Arquivo, string Resultado, string? Detalhe);
 
 public record PaginaNotas(List<NotaSaida> Itens, int Total, int Pagina, int Tamanho);
 
-public record ResumoDashboard(string Mes, int NotasNoMes, decimal ValorNoMes, int XmlBaixados, int XmlPendentes, int Total);
+public record ContagemTipo(string Tipo, int Quantidade, decimal Valor);
+
+/// <param name="NotasNoMes">Documentos do mês, exceto cancelados e exceto MDF-e (manifesto de transporte, não é nota de faturamento).</param>
+/// <param name="PorTipo">Quantidade e valor por tipo no mês (cancelados excluídos; o valor do MDF-e é o da carga, não faturamento).</param>
+public record ResumoDashboard(string Mes, int NotasNoMes, decimal ValorNoMes, int XmlBaixados, int XmlPendentes, int Total, List<ContagemTipo> PorTipo);
 
 public record LogSincronizacao(long Id, string IniciadoEm, string? FimEm, string Origem, string? Resultado, int NovasNotas, string? Mensagem);
 
