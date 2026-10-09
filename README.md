@@ -36,7 +36,8 @@ dotnet test
 - O **MDF-e** é um manifesto de transporte: fica fora da contagem e do faturamento do mês (o valor dele é o da carga). O painel mostra a contagem por tipo.
 - A **NFS-e** não tem chave de 44 dígitos: o identificador é `NFSE-{CNPJ do prestador}-{município}-{número}`. Cada arquivo deve ter uma NFS-e; para várias, use um ZIP.
 - XMLs de tipos novos ficam em `xmls\{tipo}\{ano}\{mês}\`; as NF-e continuam em `xmls\{ano}\{mês}\`.
-- **Não há busca automática** de CT-e, MDF-e, CF-e SAT e NFS-e (cada um tem serviço próprio da Sefaz ou da prefeitura, e não foi possível testar). Também não há importação desses tipos pelo SPED.
+- **Busca automática (EXPERIMENTAL, desligada por padrão):** CT-e e MDF-e podem ser buscados junto com a NF-e na sincronização (*Configurações > Outros documentos na Sefaz*, ou `DistribuirCte`/`DistribuirMdfe` no `appsettings.json`). Cada serviço tem o seu próprio controle de NSU. **O formato desses serviços (URL, namespaces, operação, versão) foi escrito de memória e nunca foi testado contra a Sefaz.** Para o MDF-e não sei ao certo se existe serviço de distribuição, por isso não há URL padrão: preencha `UrlDistribuicaoMdfe` conforme o Portal. Uma falha nesses serviços nunca derruba a busca de NF-e: aparece como aviso no histórico. Para investigar: `sync --diagnostico --servico cte` (ou `mdfe`).
+- CF-e SAT e NFS-e não têm busca automática (o SAT é do equipamento; a NFS-e depende de cada prefeitura). Também não há importação desses tipos pelo SPED.
 - ⚠️ Os nomes dos elementos desses XMLs foram escritos **de memória** e testados só com XMLs montados à mão. Confirme com arquivos reais do seu emissor; a NFS-e varia muito entre municípios. Se algum for rejeitado ou ficar com campos vazios, mande um exemplo (sem dados sensíveis) para ajuste.
 
 ## Executável único (Windows)

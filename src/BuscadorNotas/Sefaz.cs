@@ -20,8 +20,13 @@ public static class SefazHttp
         return new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(90) };
     }
 
+    public static Task<XDocument> EnviarSoapAsync(HttpClient http, string url, bool soap12,
+        XNamespace nsWsdl, string? metodo, XElement dadosMsg, CancellationToken ct) =>
+        EnviarSoapAsync(http, url, soap12, nsWsdl, metodo, "nfeDadosMsg", dadosMsg, ct);
+
+    /// <param name="elementoDados">nfeDadosMsg (NF-e), cteDadosMsg (CT-e), mdfeDadosMsg (MDF-e)...</param>
     public static async Task<XDocument> EnviarSoapAsync(HttpClient http, string url, bool soap12,
-        XNamespace nsWsdl, string? metodo, XElement dadosMsg, CancellationToken ct)
+        XNamespace nsWsdl, string? metodo, string elementoDados, XElement dadosMsg, CancellationToken ct)
     {
         XNamespace env = soap12
             ? "http://www.w3.org/2003/05/soap-envelope"
@@ -32,9 +37,9 @@ public static class SefazHttp
                 new XAttribute(XNamespace.Xmlns + "soap", env.NamespaceName),
                 new XElement(env + "Body",
                     metodo == null
-                        ? new XElement(nsWsdl + "nfeDadosMsg", dadosMsg)
+                        ? new XElement(nsWsdl + elementoDados, dadosMsg)
                         : new XElement(nsWsdl + metodo,
-                            new XElement(nsWsdl + "nfeDadosMsg", dadosMsg)))));
+                            new XElement(nsWsdl + elementoDados, dadosMsg)))));
 
         var conteudo = new StringContent(envelope.ToString(SaveOptions.DisableFormatting), Encoding.UTF8);
         if (soap12)
@@ -44,7 +49,7 @@ public static class SefazHttp
         else
         {
             conteudo.Headers.ContentType = MediaTypeHeaderValue.Parse("text/xml; charset=utf-8");
-            conteudo.Headers.Add("SOAPAction", $"\"{nsWsdl.NamespaceName}/{metodo ?? "nfeDadosMsg"}\"");
+            conteudo.Headers.Add("SOAPAction", $"\"{nsWsdl.NamespaceName}/{metodo ?? elementoDados}\"");
         }
 
         using var resp = await http.PostAsync(url, conteudo, ct);
@@ -60,42 +65,75 @@ public static class SefazHttp
         raiz.Descendants().FirstOrDefault(e => e.Name.LocalName == nomeLocal)?.Value.Trim();
 }
 
-/// <summary>Serviço NFeDistribuicaoDFe (Ambiente Nacional) — método nfeDistDFeInteresse.</summary>
+/// <summary>Descreve um serviço de distribuição DF-e (NF-e, CT-e, MDF-e): só mudam URL, namespaces, operação e versão.</summary>
+public record ServicoDistribuicao(string Chave, string Rotulo, string Url, string NsWsdl, string NsMsg, string Operacao, string ElementoDados, string Versao);
+
+/// <remarks>
+/// ATENÇÃO: os dados de CT-e e MDF-e (namespaces, operação, versão) são de MEMÓRIA, não confirmados em manual, e
+/// nunca foram testados contra a Sefaz. As URLs podem ser trocadas no appsettings.json.
+/// </remarks>
+public static class ServicosDistribuicao
+{
+    public static ServicoDistribuicao Nfe(Configuracao cfg) => new("NFE", "NF-e", cfg.UrlDistribuicao,
+        "http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe", "http://www.portalfiscal.inf.br/nfe",
+        "nfeDistDFeInteresse", "nfeDadosMsg", "1.01");
+
+    public static ServicoDistribuicao Cte(Configuracao cfg) => new("CTE", "CT-e", cfg.UrlDistribuicaoCte,
+        "http://www.portalfiscal.inf.br/cte/wsdl/CTeDistribuicaoDFe", "http://www.portalfiscal.inf.br/cte",
+        "cteDistDFeInteresse", "cteDadosMsg", "1.00");
+
+    public static ServicoDistribuicao Mdfe(Configuracao cfg) => new("MDFE", "MDF-e", cfg.UrlDistribuicaoMdfe,
+        "http://www.portalfiscal.inf.br/mdfe/wsdl/MDFeDistribuicaoDFe", "http://www.portalfiscal.inf.br/mdfe",
+        "mdfeDistDFeInteresse", "mdfeDadosMsg", "1.00");
+
+    public static ServicoDistribuicao Por(string? chave, Configuracao cfg) => (chave ?? "NFE").ToUpperInvariant() switch
+    {
+        "CTE" => Cte(cfg),
+        "MDFE" => Mdfe(cfg),
+        _ => Nfe(cfg),
+    };
+}
+
+/// <summary>Serviço de distribuição DF-e (Ambiente Nacional / SVRS): NFeDistribuicaoDFe por padrão; CT-e e MDF-e por <see cref="ServicoDistribuicao"/>.</summary>
 public class SefazDistribuicao
 {
-    private static readonly XNamespace NsNfe = "http://www.portalfiscal.inf.br/nfe";
-    private static readonly XNamespace NsWsdl = "http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe";
-
     private readonly HttpClient _http;
     private readonly Configuracao _cfg;
+    private readonly ServicoDistribuicao _servico;
 
-    public SefazDistribuicao(HttpClient http, Configuracao cfg)
+    public SefazDistribuicao(HttpClient http, Configuracao cfg, ServicoDistribuicao? servico = null)
     {
         _http = http;
         _cfg = cfg;
+        _servico = servico ?? ServicosDistribuicao.Nfe(cfg);
     }
 
     /// <summary>Último distDFeInt enviado (para diagnóstico quando a Sefaz rejeita).</summary>
     public string? UltimaRequisicao { get; private set; }
 
-    /// <summary>distDFeInt v1.01: tpAmb, [cUFAutor], CNPJ, distNSU/ultNSU (nesta ordem). cUFAutor só entra se for uma UF válida.</summary>
-    public static XElement MontarDistDFeInt(Configuracao cfg, string ultNsu)
+    /// <summary>distDFeInt: tpAmb, [cUFAutor], CNPJ, distNSU/ultNSU (nesta ordem). cUFAutor só entra se for uma UF válida.</summary>
+    public static XElement MontarDistDFeInt(Configuracao cfg, string ultNsu, ServicoDistribuicao? servico = null)
     {
-        var el = new XElement(NsNfe + "distDFeInt",
-            new XAttribute("versao", "1.01"),
-            new XElement(NsNfe + "tpAmb", cfg.Ambiente));
-        if (Configuracao.UfValida(cfg.CUFAutorEfetivo)) el.Add(new XElement(NsNfe + "cUFAutor", cfg.CUFAutorEfetivo));
-        el.Add(new XElement(NsNfe + "CNPJ", cfg.Cnpj),
-               new XElement(NsNfe + "distNSU", new XElement(NsNfe + "ultNSU", ultNsu.PadLeft(15, '0'))));
+        servico ??= ServicosDistribuicao.Nfe(cfg);
+        XNamespace ns = servico.NsMsg;
+        var el = new XElement(ns + "distDFeInt",
+            new XAttribute("versao", servico.Versao),
+            new XElement(ns + "tpAmb", cfg.Ambiente));
+        if (Configuracao.UfValida(cfg.CUFAutorEfetivo)) el.Add(new XElement(ns + "cUFAutor", cfg.CUFAutorEfetivo));
+        el.Add(new XElement(ns + "CNPJ", cfg.Cnpj),
+               new XElement(ns + "distNSU", new XElement(ns + "ultNSU", ultNsu.PadLeft(15, '0'))));
         return el;
     }
 
     public async Task<RetornoDistribuicao> ConsultarAsync(string ultNsu, CancellationToken ct)
     {
-        var msg = MontarDistDFeInt(_cfg, ultNsu);
+        if (string.IsNullOrWhiteSpace(_servico.Url))
+            throw new InvalidOperationException($"URL do serviço de distribuição de {_servico.Rotulo} não configurada (veja o Portal e preencha no appsettings.json).");
+        var msg = MontarDistDFeInt(_cfg, ultNsu, _servico);
         UltimaRequisicao = msg.ToString(SaveOptions.DisableFormatting);
-        var resp = await SefazHttp.EnviarSoapAsync(_http, _cfg.UrlDistribuicao, _cfg.Soap12, NsWsdl,
-            "nfeDistDFeInteresse", msg, ct);
+        XNamespace wsdl = _servico.NsWsdl;
+        var resp = await SefazHttp.EnviarSoapAsync(_http, _servico.Url, _cfg.Soap12, wsdl,
+            _servico.Operacao, _servico.ElementoDados, msg, ct);
         return InterpretarRetorno(resp);
     }
 

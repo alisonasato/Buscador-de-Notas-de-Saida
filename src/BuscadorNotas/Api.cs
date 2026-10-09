@@ -10,7 +10,7 @@ using Microsoft.Extensions.FileProviders;
 
 namespace BuscadorNotas;
 
-public record ConfigRequisicao(int? IntervaloMinutos, bool? Automatica, int? Ambiente, string? Cnpj, string? CufAutor = null);
+public record ConfigRequisicao(int? IntervaloMinutos, bool? Automatica, int? Ambiente, string? Cnpj, string? CufAutor = null, bool? BuscarCte = null, bool? BuscarMdfe = null);
 public record ZipRequisicao(List<string>? Chaves);
 
 /// <summary>API HTTP (Minimal API) + arquivos estáticos da interface (wwwroot). Reutiliza Repositorio, Robo e SyncService.</summary>
@@ -356,6 +356,9 @@ public static class ApiServer
             cnpj = cfg.Cnpj,
             cufAutor = Configuracao.UfValida(cfg.CUFAutor) ? cfg.CUFAutor : "",
             cufAutorEfetivo = cfg.CUFAutorEfetivo,
+            buscarCte = cfg.DistribuirCte,
+            buscarMdfe = cfg.DistribuirMdfe,
+            urlMdfeConfigurada = !string.IsNullOrWhiteSpace(cfg.UrlDistribuicaoMdfe),
             apiProtegidaPorToken = !string.IsNullOrEmpty(cfg.ApiToken),
         };
 
@@ -375,6 +378,8 @@ public static class ApiServer
             if (b.IntervaloMinutos is { } iv) { cfg.EsperaSemNovosMinutos = iv; repo.SalvarPref("intervaloMinutos", iv.ToString(CultureInfo.InvariantCulture)); }
             if (b.Automatica is { } au) { cfg.SincronizacaoAutomatica = au; repo.SalvarPref("automatica", au.ToString()); }
             if (b.Ambiente is { } am) { cfg.Ambiente = am; repo.SalvarPref("ambiente", am.ToString(CultureInfo.InvariantCulture)); }
+            if (b.BuscarCte is { } bc) { cfg.DistribuirCte = bc; repo.SalvarPref("distribuirCte", bc.ToString()); }
+            if (b.BuscarMdfe is { } bm) { cfg.DistribuirMdfe = bm; repo.SalvarPref("distribuirMdfe", bm.ToString()); }
             if (b.CufAutor is { } uf) { cfg.CUFAutor = uf; repo.SalvarPref("cufAutor", uf); }
             if (!string.IsNullOrWhiteSpace(b.Cnpj))
             {

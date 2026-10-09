@@ -31,6 +31,14 @@ public class Configuracao
     public string UrlDistribuicao { get; set; } =
         "https://www1.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx";
 
+    /// <summary>EXPERIMENTAL: também busca CT-e na distribuição DF-e do CT-e (desligado por padrão; formato de memória, não testado na Sefaz).</summary>
+    public bool DistribuirCte { get; set; }
+    public string UrlDistribuicaoCte { get; set; } = "https://www1.cte.fazenda.gov.br/CTeDistribuicaoDFe/CTeDistribuicaoDFe.asmx";
+
+    /// <summary>EXPERIMENTAL: também busca MDF-e. Sem URL padrão: não sei ao certo se há serviço de distribuição de MDF-e; preencha conforme o Portal.</summary>
+    public bool DistribuirMdfe { get; set; }
+    public string UrlDistribuicaoMdfe { get; set; } = "";
+
     /// <summary>URL do NFeConsultaProtocolo4 por código de UF (2 dígitos). Sem valor padrão: preencher conforme o Portal da NF-e.</summary>
     public Dictionary<string, string> UrlsConsultaProtocolo { get; set; } = new();
 
@@ -137,6 +145,8 @@ public class Configuracao
     public void AplicarPreferencias(Repositorio repo)
     {
         if (repo.ObterPref("cufAutor") is { } uf && (uf == "" || UfValida(uf))) CUFAutor = uf;
+        if (bool.TryParse(repo.ObterPref("distribuirCte"), out var dc)) DistribuirCte = dc;
+        if (bool.TryParse(repo.ObterPref("distribuirMdfe"), out var dm)) DistribuirMdfe = dm;
         if (repo.ObterPref("cnpj") is { } c && Documento.CnpjValido(c)) Cnpj = new string(c.Where(char.IsDigit).ToArray());
         if (int.TryParse(repo.ObterPref("intervaloMinutos"), out var i) && i >= 0) EsperaSemNovosMinutos = i;
         if (bool.TryParse(repo.ObterPref("automatica"), out var a)) SincronizacaoAutomatica = a;

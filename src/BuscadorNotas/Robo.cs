@@ -34,13 +34,13 @@ public partial class Robo
             : "cUFAutor: omitido (UF não configurada e sem notas para inferir; informe a UF em Configurações).");
     }
 
-    public async Task DiagnosticarAsync(int maxPaginas, string nsuInicial, CancellationToken ct)
+    public async Task DiagnosticarAsync(int maxPaginas, string nsuInicial, CancellationToken ct, string? servico = null)
     {
         _cfg.ValidarParaSefaz();
         ResolverUf();
         using var cert = CertificadoService.ObterCertificado(_cfg.CertificadoPfx, _cfg.SenhaCertificado);
         using var http = SefazHttp.CriarClient(cert);
-        await Diagnostico.ExecutarAsync(_cfg, new SefazDistribuicao(http, _cfg), maxPaginas, nsuInicial, ct);
+        await Diagnostico.ExecutarAsync(_cfg, new SefazDistribuicao(http, _cfg, ServicosDistribuicao.Por(servico, _cfg)), maxPaginas, nsuInicial, ct);
     }
 
     /// <summary>Roda o robô de NSU. Com <paramref name="repetir"/>, fica em loop respeitando o throttling.</summary>
@@ -62,26 +62,63 @@ public partial class Robo
         ResolverUf();
         using var cert = CertificadoService.ObterCertificado(_cfg.CertificadoPfx, _cfg.SenhaCertificado);
         using var http = SefazHttp.CriarClient(cert);
-        return await UmCicloAsync(new SefazDistribuicao(http, _cfg), progresso, ct);
+        return await ExecutarCicloComAsync(http, progresso, ct);
     }
 
-    private async Task<ResultadoCiclo> UmCicloAsync(SefazDistribuicao dist, Action<ProgressoSync>? progresso, CancellationToken ct)
+    /// <summary>
+    /// NF-e primeiro; depois, se ligados, CT-e e MDF-e. Uma falha nos serviços adicionais (experimentais) nunca derruba
+    /// o resultado da NF-e: vira um aviso na mensagem do resultado.
+    /// </summary>
+    public async Task<ResultadoCiclo> ExecutarCicloComAsync(HttpClient http, Action<ProgressoSync>? progresso, CancellationToken ct)
     {
-        var ultNsu = _repo.ObterUltimoNsu(_cfg.Cnpj);
+        var nfe = ServicosDistribuicao.Nfe(_cfg);
+        var r = await UmCicloAsync(new SefazDistribuicao(http, _cfg, nfe), nfe, progresso, ct);
+        if (r.CStat is "CANCELADO" or "656") return r; // não insiste em outros serviços se o usuário cancelou ou a Sefaz pediu espera
+
+        var servicos = new List<ServicoDistribuicao>();
+        if (_cfg.DistribuirCte) servicos.Add(ServicosDistribuicao.Cte(_cfg));
+        if (_cfg.DistribuirMdfe) servicos.Add(ServicosDistribuicao.Mdfe(_cfg));
+
+        int novas = r.NovasNotas;
+        var avisos = new List<string>();
+        foreach (var svc in servicos)
+        {
+            try
+            {
+                var rx = await UmCicloAsync(new SefazDistribuicao(http, _cfg, svc), svc, null, ct);
+                novas += rx.NovasNotas;
+                if (rx.CStat == "656") avisos.Add($"{svc.Rotulo}: a Sefaz pediu para aguardar (656)");
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"  {svc.Rotulo} (experimental): {ex.Message}");
+                avisos.Add($"{svc.Rotulo}: {ex.Message}");
+            }
+        }
+        return avisos.Count == 0 && novas == r.NovasNotas ? r
+            : r with { NovasNotas = novas, Mensagem = string.Join(" | ", new[] { r.Mensagem }.Concat(avisos).Where(x => !string.IsNullOrEmpty(x))) };
+    }
+
+    private async Task<ResultadoCiclo> UmCicloAsync(SefazDistribuicao dist, ServicoDistribuicao svc, Action<ProgressoSync>? progresso, CancellationToken ct)
+    {
+        // O controle de NSU de cada serviço é separado: NF-e usa só o CNPJ (compatível com o que já existe); os demais, "CNPJ:TIPO".
+        var chaveNsu = svc.Chave == "NFE" ? _cfg.Cnpj : $"{_cfg.Cnpj}:{svc.Chave}";
+        var ultNsu = _repo.ObterUltimoNsu(chaveNsu);
         int pagina = 0, novas = 0;
 
         while (!ct.IsCancellationRequested)
         {
             pagina++;
-            Console.WriteLine($"Consultando a partir do NSU {ultNsu}...");
+            Console.WriteLine($"Consultando {svc.Rotulo} a partir do NSU {ultNsu}...");
             var ret = await dist.ConsultarAsync(ultNsu, ct);
             Console.WriteLine($"  cStat={ret.CStat} ({ret.XMotivo}) ultNSU={ret.UltNsu} maxNSU={ret.MaxNsu} docs={ret.Documentos.Count}");
 
             switch (ret.CStat)
             {
                 case "138": // documentos localizados
-                    foreach (var d in ret.Documentos) if (ProcessarDocumento(d)) novas++;
-                    _repo.SalvarUltimoNsu(_cfg.Cnpj, ret.UltNsu);
+                    foreach (var d in ret.Documentos) if (svc.Chave == "NFE" ? ProcessarDocumento(d) : ProcessarDocumentoExtra(d)) novas++;
+                    _repo.SalvarUltimoNsu(chaveNsu, ret.UltNsu);
                     ultNsu = ret.UltNsu;
                     progresso?.Invoke(new ProgressoSync(pagina, ret.UltNsu, ret.MaxNsu, novas));
                     if (string.CompareOrdinal(ret.UltNsu, ret.MaxNsu) >= 0)
@@ -90,12 +127,12 @@ public partial class Robo
                     break;
 
                 case "137": // nenhum documento localizado
-                    _repo.SalvarUltimoNsu(_cfg.Cnpj, ret.UltNsu);
+                    _repo.SalvarUltimoNsu(chaveNsu, ret.UltNsu);
                     return new ResultadoCiclo("137", novas, TimeSpan.FromMinutes(_cfg.EsperaSemNovosMinutos), ret.XMotivo);
 
                 case "656": // consumo indevido: bloqueio temporário
                     Console.WriteLine("  Sefaz informou consumo indevido; aguardando antes de tentar de novo.");
-                    if (ret.UltNsu != "000000000000000") _repo.SalvarUltimoNsu(_cfg.Cnpj, ret.UltNsu);
+                    if (ret.UltNsu != "000000000000000") _repo.SalvarUltimoNsu(chaveNsu, ret.UltNsu);
                     return new ResultadoCiclo("656", novas, TimeSpan.FromMinutes(_cfg.EsperaConsumoIndevidoMinutos), ret.XMotivo);
 
                 default:
@@ -107,6 +144,14 @@ public partial class Robo
             }
         }
         return new ResultadoCiclo("CANCELADO", novas, TimeSpan.Zero, "Sincronização cancelada.");
+    }
+
+    /// <summary>CT-e/MDF-e vindos da distribuição: mesma importação dos XMLs (filtra emitente, tipo, cancelamentos).</summary>
+    private bool ProcessarDocumentoExtra(DocumentoDistribuido d)
+    {
+        var r = ImportarXmlBytes(System.Text.Encoding.UTF8.GetBytes(d.Xml), incluirOutrosCnpjs: false);
+        if (r.Desfecho == Desfecho.Importado) Console.WriteLine($"  NSU {d.Nsu}: {r.Detalhe}.");
+        return r.Desfecho == Desfecho.Importado && r.Novo;
     }
 
     /// <summary>Retorna true quando o documento é uma nota de saída nova (ou que ainda não tinha XML).</summary>

@@ -12,7 +12,7 @@ public static class Diagnostico
         string nsuInicial, CancellationToken ct)
     {
         var porSchema = new Dictionary<string, int>();
-        int eventosCancelamento = 0, outrosEventos = 0, totalDocs = 0, nfeComoEmitente = 0, nfeComoDestinatario = 0, nfeOutroPapel = 0, resumoComoEmitente = 0, semLeitura = 0;
+        int outrosTiposComoEmitente = 0, eventosCancelamento = 0, outrosEventos = 0, totalDocs = 0, nfeComoEmitente = 0, nfeComoDestinatario = 0, nfeOutroPapel = 0, resumoComoEmitente = 0, semLeitura = 0;
         var exemplosEmitente = new List<string>();
         var ultNsu = nsuInicial;
         var paginas = 0;
@@ -57,6 +57,14 @@ public static class Diagnostico
                         }
                         break;
                     }
+                    default:
+                    {
+                        // CT-e, MDF-e e demais documentos devolvidos por outros serviços de distribuição
+                        var n = DocumentosFiscais.Ler(doc, "NSU");
+                        if (n == null) { semLeitura++; break; }
+                        if (n.CnpjEmitente == cfg.Cnpj) { outrosTiposComoEmitente++; if (exemplosEmitente.Count < 5) exemplosEmitente.Add(n.ChaveAcesso); }
+                        break;
+                    }
                     case "resNFe":
                     {
                         var n = NfeXml.LerResumo(doc, "NSU");
@@ -80,6 +88,7 @@ public static class Diagnostico
         Console.WriteLine($"Resumos (resNFe) em que o CNPJ é EMITENTE:        {resumoComoEmitente}");
         Console.WriteLine($"NF-e completas em que o CNPJ é DESTINATÁRIO:      {nfeComoDestinatario}");
         Console.WriteLine($"NF-e completas em outro papel (ex.: autorizado):  {nfeOutroPapel}");
+        Console.WriteLine($"Outros documentos (CT-e, MDF-e...) em que o CNPJ é EMITENTE: {outrosTiposComoEmitente}");
         Console.WriteLine($"Eventos de cancelamento de notas emitidas pelo CNPJ: {eventosCancelamento} (outros eventos, ex.: CC-e: {outrosEventos})");
         if (exemplosEmitente.Count > 0) Console.WriteLine("Exemplos de chaves como emitente: " + string.Join(", ", exemplosEmitente));
         Console.WriteLine();

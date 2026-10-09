@@ -465,4 +465,20 @@ public class ApiTestes
         Assert.Equal(HttpStatusCode.OK, (await f.Http.PutAsJsonAsync("/api/config", new { cufAutor = "" })).StatusCode); // limpar
         Assert.Equal("", (await f.Http.GetFromJsonAsync<JsonElement>("/api/config")).GetProperty("cufAutor").GetString());
     }
+
+    [Fact]
+    public async Task Config_liga_e_persiste_a_busca_de_cte_e_mdfe()
+    {
+        await using var f = await Semeada();
+        var antes = await f.Http.GetFromJsonAsync<JsonElement>("/api/config");
+        Assert.False(antes.GetProperty("buscarCte").GetBoolean());
+        Assert.False(antes.GetProperty("buscarMdfe").GetBoolean());
+
+        Assert.Equal(HttpStatusCode.OK, (await f.Http.PutAsJsonAsync("/api/config", new { buscarCte = true })).StatusCode);
+        Assert.True(f.Cfg.DistribuirCte);
+        var nova = new Configuracao();
+        nova.AplicarPreferencias(f.Repo);
+        Assert.True(nova.DistribuirCte);
+        Assert.False(nova.DistribuirMdfe);
+    }
 }

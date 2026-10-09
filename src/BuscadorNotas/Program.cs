@@ -15,7 +15,7 @@ const string Ajuda = """
                                   Sobe a interface web e a API HTTP (/api). Veja ApiUrl/ApiToken em appsettings.json.
       sync [--loop]               Robô de NSU (nfeDistDFeInteresse). Com --loop roda continuamente.
       sync --desde-nsu N          Volta o NSU salvo para N e sincroniza (reprocessa histórico; operação idempotente).
-      sync --diagnostico [--max-paginas N] [--nsu-inicial N]
+      sync --diagnostico [--max-paginas N] [--nsu-inicial N] [--servico nfe|cte|mdfe]
                                   Teste: lista em que papel (emitente/destinatário) seu CNPJ aparece, sem gravar nada.
       importar-xml <pasta> [--todos]
                                   Indexa XMLs de NF-e de uma pasta (subpastas incluídas) e copia para ano/mes.
@@ -88,7 +88,7 @@ try
             if (resto.Contains("--diagnostico"))
                 await robo.DiagnosticarAsync(
                     int.Parse(Opcao(resto, "--max-paginas") ?? "20", CultureInfo.InvariantCulture),
-                    (Opcao(resto, "--nsu-inicial") ?? "0").PadLeft(15, '0'), cts.Token);
+                    (Opcao(resto, "--nsu-inicial") ?? "0").PadLeft(15, '0'), cts.Token, Opcao(resto, "--servico"));
             else
             {
                 // Reprocessar histórico (ex.: para aplicar eventos de cancelamento que passaram antes desta versão):

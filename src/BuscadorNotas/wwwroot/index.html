@@ -221,6 +221,12 @@
             </div>
           </div>
           <label class="mt-4 flex items-center gap-2 text-sm"><input id="cfg-auto" type="checkbox" class="h-4 w-4 rounded" />Sincronização automática ativa</label>
+          <fieldset class="mt-4 rounded-lg border border-dashed border-slate-300 p-3 text-sm dark:border-slate-700">
+            <legend class="px-1 text-xs font-medium text-slate-500 dark:text-slate-400">Outros documentos na Sefaz (experimental, desligado por padrão)</legend>
+            <label class="flex items-center gap-2"><input id="cfg-cte" type="checkbox" class="h-4 w-4 rounded" />Também buscar CT-e</label>
+            <label class="mt-1 flex items-center gap-2"><input id="cfg-mdfe" type="checkbox" class="h-4 w-4 rounded" />Também buscar MDF-e <span id="cfg-mdfe-aviso" class="text-xs text-amber-700 dark:text-amber-400"></span></label>
+            <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">O formato desses serviços foi escrito de memória e nunca foi testado contra a Sefaz. Se der erro, a busca de NF-e continua normal e o erro aparece no histórico. Para MDF-e é preciso informar <code class="font-mono">UrlDistribuicaoMdfe</code> no appsettings.json.</p>
+          </fieldset>
           <div class="mt-4 max-w-xs">
             <label class="label" for="cfg-uf">UF da empresa (enviada à Sefaz como cUFAutor)</label>
             <select id="cfg-uf" class="field"><option value="">Detectar automaticamente / omitir</option><option value="12">AC (12)</option><option value="27">AL (27)</option><option value="13">AM (13)</option><option value="16">AP (16)</option><option value="29">BA (29)</option><option value="23">CE (23)</option><option value="53">DF (53)</option><option value="32">ES (32)</option><option value="52">GO (52)</option><option value="21">MA (21)</option><option value="31">MG (31)</option><option value="50">MS (50)</option><option value="51">MT (51)</option><option value="15">PA (15)</option><option value="25">PB (25)</option><option value="26">PE (26)</option><option value="22">PI (22)</option><option value="41">PR (41)</option><option value="33">RJ (33)</option><option value="24">RN (24)</option><option value="11">RO (11)</option><option value="14">RR (14)</option><option value="43">RS (43)</option><option value="42">SC (42)</option><option value="28">SE (28)</option><option value="35">SP (35)</option><option value="17">TO (17)</option></select>
@@ -696,6 +702,8 @@ async function carregarConfig() {
     sel.value = c.intervaloMinutos; $("#cfg-auto").checked = c.automatica; $("#cfg-ambiente").value = c.ambiente;
     $("#cfg-cnpj").value = c.cnpj ? docFmt(c.cnpj) : "";
     $("#cfg-uf").value = c.cufAutor || "";
+    $("#cfg-cte").checked = !!c.buscarCte; $("#cfg-mdfe").checked = !!c.buscarMdfe;
+    $("#cfg-mdfe-aviso").textContent = c.urlMdfeConfigurada ? "" : "(falta a URL no appsettings.json)";
     $("#cfg-uf-info").textContent = c.cufAutor ? "" : (c.cufAutorEfetivo ? `Em uso (inferida das notas): ${c.cufAutorEfetivo}.` : "Sem UF: o campo será omitido na consulta.");
   } catch (e) { toast(e.message, "erro"); }
   carregarCertificado();
@@ -703,7 +711,7 @@ async function carregarConfig() {
 }
 $("#btn-salvar-cfg").onclick = async () => {
   try {
-    await apiJson("/api/config", { method: "PUT", json: { intervaloMinutos: +$("#cfg-intervalo").value, automatica: $("#cfg-auto").checked, ambiente: +$("#cfg-ambiente").value, cnpj: $("#cfg-cnpj").value.replace(/\D/g, "") || null, cufAutor: $("#cfg-uf").value } });
+    await apiJson("/api/config", { method: "PUT", json: { intervaloMinutos: +$("#cfg-intervalo").value, automatica: $("#cfg-auto").checked, ambiente: +$("#cfg-ambiente").value, cnpj: $("#cfg-cnpj").value.replace(/\D/g, "") || null, cufAutor: $("#cfg-uf").value, buscarCte: $("#cfg-cte").checked, buscarMdfe: $("#cfg-mdfe").checked } });
     toast("Configurações salvas"); atualizarStatus();
   } catch (e) { toast(e.message, "erro"); }
 };
