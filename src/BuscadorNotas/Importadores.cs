@@ -4,7 +4,7 @@ using System.Xml.Linq;
 namespace BuscadorNotas;
 
 public enum Desfecho { Importado, Ignorado, Rejeitado }
-public record ResultadoArquivo(Desfecho Desfecho, string Detalhe, bool Novo = false);
+public record ResultadoArquivo(Desfecho Desfecho, string Detalhe, bool Novo = false, bool Entrada = false);
 
 public record ResultadoImportacao(int Lidos, int Novos, int Ignorados, List<string> Avisos);
 
@@ -114,7 +114,7 @@ public partial class Robo
         var existia = _repo.ObterNota(nota.ChaveAcesso)?.Status == StatusNota.Baixado;
         nota.CaminhoXmlLocal = _storage.SalvarDocumento(nota.Tipo, nota.ChaveAcesso, nota.DataEmissao, dados);
         _repo.SalvarNotaCompleta(nota);
-        return new(Desfecho.Importado, $"{TipoDoc.Rotulo(nota.Tipo)} {nota.NumeroNota}" + (nota.Direcao == Direcao.Entrada ? " (entrada)" : ""), Novo: !existia && nota.Direcao != Direcao.Entrada);
+        return new(Desfecho.Importado, $"{TipoDoc.Rotulo(nota.Tipo)} {nota.NumeroNota}" + (nota.Direcao == Direcao.Entrada ? " (entrada)" : ""), Novo: !existia, Entrada: nota.Direcao == Direcao.Entrada);
     }
 
     public ResultadoImportacao ImportarXmls(string pasta, bool incluirOutrosCnpjs)

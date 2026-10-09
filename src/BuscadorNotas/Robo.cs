@@ -22,6 +22,9 @@ public class EstatisticaCiclo
     }
 }
 
+/// <summary>Outro processo (ou o serviço) já está consultando a Sefaz para este banco; não é erro de configuração nem da Sefaz.</summary>
+public class ConsultaEmAndamentoException(string mensagem) : InvalidOperationException(mensagem);
+
 public record ResultadoBuscaChaves(int Consultadas, int Obtidas, int Indisponiveis, int Erros, string Mensagem);
 
 public record ProgressoSync(int Pagina, string UltNsu, string MaxNsu, int NovasNotas);
@@ -68,14 +71,32 @@ public partial class Robo
     }
 
     /// <summary>Roda o robô de NSU. Com <paramref name="repetir"/>, fica em loop respeitando o throttling.</summary>
+    /// <summary>Espera entre dois ciclos no modo --loop: nunca menos que o intervalo mínimo (intervalo 0 não pode virar laço sem pausa).</summary>
+    public TimeSpan EsperaEntreCiclos(ResultadoCiclo r)
+    {
+        var minimo = TimeSpan.FromMinutes(Math.Max(1, _cfg.IntervaloMinimoMinutos));
+        return r.Espera > minimo ? r.Espera : minimo;
+    }
+
     public async Task SincronizarAsync(bool repetir, CancellationToken ct)
     {
         do
         {
-            var r = await ExecutarCicloAsync(null, ct);
-            if (!repetir) break;
-            Console.WriteLine($"Aguardando {r.Espera.TotalMinutes:0} min até a próxima consulta...");
-            await Task.Delay(r.Espera, ct);
+            TimeSpan espera;
+            try
+            {
+                var r = await ExecutarCicloAsync(null, ct);
+                if (!repetir) break;
+                espera = EsperaEntreCiclos(r);
+            }
+            catch (Exception ex) when (repetir && ex is not OperationCanceledException)
+            {
+                // no modo contínuo uma falha (rede, Sefaz fora do ar...) não encerra o programa: espera e tenta de novo
+                Console.Error.WriteLine($"Falha na consulta: {ex.Message}");
+                espera = EsperaEntreCiclos(new ResultadoCiclo("ERRO", 0, TimeSpan.FromMinutes(_cfg.EsperaSemNovosMinutos), null));
+            }
+            Console.WriteLine($"Aguardando {espera.TotalMinutes:0} min até a próxima consulta...");
+            await Task.Delay(espera, ct);
         } while (!ct.IsCancellationRequested);
     }
 
@@ -105,7 +126,7 @@ public partial class Robo
         }
         catch (IOException)
         {
-            throw new InvalidOperationException("Outro programa (ou o serviço) já está consultando a Sefaz para este banco de dados. Aguarde ele terminar.");
+            throw new ConsultaEmAndamentoException("Outro programa (ou o serviço) já está consultando a Sefaz para este banco de dados. Aguarde ele terminar.");
         }
     }
 
@@ -184,6 +205,7 @@ public partial class Robo
         {
             pagina++;
             Console.WriteLine($"Consultando {svc.Rotulo} a partir do NSU {ultNsu}...");
+            var anterior = ultNsu;
             var ret = await dist.ConsultarAsync(ultNsu, ct);
             Console.WriteLine($"  cStat={ret.CStat} ({ret.XMotivo}) ultNSU={ret.UltNsu} maxNSU={ret.MaxNsu} docs={ret.Documentos.Count}");
 
@@ -199,6 +221,14 @@ public partial class Robo
                         var resumo = est.Texto();
                         if (resumo.Length > 0) Console.WriteLine("  " + resumo);
                         return new ResultadoCiclo("138", novas, TimeSpan.FromMinutes(_cfg.EsperaSemNovosMinutos), resumo.Length > 0 ? resumo : ret.XMotivo);
+                    }
+                    if (string.CompareOrdinal(ret.UltNsu, anterior) <= 0)
+                    {
+                        // Sem avanço do NSU, repetir o pedido seria um laço de consultas iguais (a Sefaz responderia 656).
+                        Console.WriteLine("  A Sefaz devolveu o mesmo NSU; consulta interrompida para não repetir o pedido.");
+                        var txt = est.Texto();
+                        return new ResultadoCiclo("138", novas, TimeSpan.FromMinutes(_cfg.EsperaSemNovosMinutos),
+                            "A Sefaz não avançou o NSU; consulta interrompida." + (txt.Length > 0 ? " " + txt : ""));
                     }
                     await Task.Delay(TimeSpan.FromSeconds(_cfg.PausaEntreRequisicoesSegundos), ct);
                     break;
@@ -228,7 +258,7 @@ public partial class Robo
     {
         var r = ImportarXmlBytes(System.Text.Encoding.UTF8.GetBytes(d.Xml), incluirOutrosCnpjs: false);
         if (r.Desfecho == Desfecho.Importado) Console.WriteLine($"  NSU {d.Nsu}: {r.Detalhe}.");
-        return r.Desfecho == Desfecho.Importado && r.Novo;
+        return r.Desfecho == Desfecho.Importado && r.Novo && !r.Entrada;
     }
 
     /// <summary>Retorna true quando o documento é uma nota de saída nova (ou que ainda não tinha XML).</summary>

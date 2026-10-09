@@ -173,8 +173,8 @@ public class SefazDistribuicao
         return new RetornoDistribuicao(
             SefazHttp.Valor(ret, "cStat") ?? "",
             SefazHttp.Valor(ret, "xMotivo") ?? "",
-            SefazHttp.Valor(ret, "ultNSU") ?? "000000000000000",
-            SefazHttp.Valor(ret, "maxNSU") ?? "000000000000000",
+            (SefazHttp.Valor(ret, "ultNSU") ?? "").PadLeft(15, '0'),   // NSU sempre com 15 dígitos: a comparação é textual
+            (SefazHttp.Valor(ret, "maxNSU") ?? "").PadLeft(15, '0'),
             docs);
     }
 }

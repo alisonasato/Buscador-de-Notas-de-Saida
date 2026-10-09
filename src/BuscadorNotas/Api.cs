@@ -450,7 +450,7 @@ public static class ApiServer
 
             try
             {
-                using var teste = new X509Certificate2(bytes, senha);
+                using var teste = new X509Certificate2(bytes, senha, X509KeyStorageFlags.EphemeralKeySet); // só valida: não deixa chave no disco
                 if (!teste.HasPrivateKey) return Results.BadRequest(new { erro = "O arquivo não contém a chave privada do certificado." });
             }
             catch (CryptographicException)
@@ -486,7 +486,7 @@ public static class ApiServer
 
         try
         {
-            using var cert = new X509Certificate2(cfg.CertificadoPfx, cfg.SenhaCertificado);
+            using var cert = new X509Certificate2(cfg.CertificadoPfx, cfg.SenhaCertificado, X509KeyStorageFlags.EphemeralKeySet);
             var cn = cert.GetNameInfo(X509NameType.SimpleName, false);
             var cnpj = Regex.Match(cn, @"\d{14}").Value;
             var validade = new DateTimeOffset(cert.NotAfter);

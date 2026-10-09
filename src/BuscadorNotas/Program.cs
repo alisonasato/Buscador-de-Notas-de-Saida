@@ -31,7 +31,9 @@ const string Ajuda = """
           --chave <44 dígitos>    --numero <n>        --serie <s>
           --de <aaaa-mm-dd>       --ate <aaaa-mm-dd>
           --destinatario <texto>  (nome ou CNPJ/CPF)
-          --status <BAIXADO|PENDENTE|RESUMO|CONSULTADA_SEM_XML|ERRO>
+          --status <BAIXADO|PENDENTE|RESUMO|CONSULTADA_SEM_XML|ERRO|INDISPONIVEL>
+          --tipo <NFE|NFCE|CTE|MDFE|CFE|NFSE>
+          --direcao <SAIDA|ENTRADA|OUTRA|TODAS>  (padrão: SAIDA)
           --vmin <valor>          --vmax <valor>      --limite <n>
 
     Opção global: --config <arquivo>.
@@ -187,6 +189,8 @@ static void Buscar(Repositorio repo, string[] a)
         Ate = Opcao(a, "--ate"),
         Destinatario = Opcao(a, "--destinatario"),
         Status = Opcao(a, "--status"),
+        Tipo = Opcao(a, "--tipo"),
+        Direcao = Opcao(a, "--direcao") is { } dir ? (dir.Equals("TODAS", StringComparison.OrdinalIgnoreCase) ? null : dir) : Direcao.Saida,
         ValorMin = NfeXml.ParseDecimal(Opcao(a, "--vmin")),
         ValorMax = NfeXml.ParseDecimal(Opcao(a, "--vmax")),
         Limite = int.TryParse(Opcao(a, "--limite"), out var l) ? l : 50,

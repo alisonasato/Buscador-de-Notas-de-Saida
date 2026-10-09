@@ -155,12 +155,15 @@ public class SyncService
         }
         catch (Exception ex)
         {
-            Finalizar(logId, "ERRO", _progresso?.NovasNotas ?? 0, ex.Message, TimeSpan.FromMinutes(Math.Max(1, _cfg.EsperaSemNovosMinutos)), (CodigoErro(ex), ex.Message));
+            // outro processo consultando: tenta de novo em poucos minutos; demais falhas seguem o intervalo configurado
+            var espera = ex is ConsultaEmAndamentoException ? TimeSpan.FromMinutes(5) : TimeSpan.FromMinutes(Math.Max(1, _cfg.EsperaSemNovosMinutos));
+            Finalizar(logId, "ERRO", _progresso?.NovasNotas ?? 0, ex.Message, espera, (CodigoErro(ex), ex.Message));
         }
     }
 
     private static string CodigoErro(Exception ex) => ex switch
     {
+        ConsultaEmAndamentoException => "OUTRO_PROCESSO",
         CryptographicException => "CERTIFICADO_INVALIDO",
         FileNotFoundException => "CERTIFICADO_AUSENTE",
         InvalidOperationException => "RETORNO_INESPERADO",

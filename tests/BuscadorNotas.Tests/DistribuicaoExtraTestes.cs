@@ -423,9 +423,74 @@ public class DistribuicaoExtraTestes
         await using var _f = f; await using var _s = sefaz;
         using (var primeira = robo.AdquirirTravaConsulta())
         {
-            var ex = Assert.Throws<InvalidOperationException>(() => robo.AdquirirTravaConsulta());   // "outro processo"
+            var ex = Assert.Throws<ConsultaEmAndamentoException>(() => robo.AdquirirTravaConsulta());   // "outro processo"
             Assert.Contains("já está consultando", ex.Message);
         }
         using var depois = robo.AdquirirTravaConsulta();                                              // liberada ao fechar
+    }
+
+    // ---------------- varredura de integridade ----------------
+
+    [Fact]
+    public async Task Ciclo_para_quando_a_sefaz_nao_avanca_o_nsu()
+    {
+        var (f, sefaz, robo) = await Montar(cte: false, mdfe: false);
+        await using var _f = f; await using var _s = sefaz;
+        // ultNSU (5) menor que maxNSU (9) e igual ao pedido: sem a proteção seria um laço de pedidos iguais
+        f.Repo.SalvarUltimoNsu(Eu, "000000000000005");
+        sefaz.Respostas["nfe"] = SefazFalsa.Resposta("138", "Documento localizado", "5", "9");
+
+        var r = await robo.ExecutarCicloComAsync(new HttpClient(), null, default);
+
+        Assert.Equal(1, sefaz.TotalPedidos);
+        Assert.Contains("não avançou", r.Mensagem);
+        Assert.NotNull(robo.EsperaRestante());                       // o intervalo mínimo vale também aqui
+    }
+
+    [Fact]
+    public async Task Nsu_sem_zeros_a_esquerda_e_normalizado_para_15_digitos()
+    {
+        var (f, sefaz, robo) = await Montar(cte: false, mdfe: false);
+        await using var _f = f; await using var _s = sefaz;
+        sefaz.Respostas["nfe"] = SefazFalsa.Resposta("138", "ok", "12", "12");
+        await robo.ExecutarCicloComAsync(new HttpClient(), null, default);
+        Assert.Equal("000000000000012", f.Repo.ObterUltimoNsu(Eu));
+    }
+
+    [Fact]
+    public async Task Modo_continuo_nunca_espera_menos_que_o_intervalo_minimo()
+    {
+        var (f, sefaz, robo) = await Montar(cte: false, mdfe: false);
+        await using var _f = f; await using var _s = sefaz;
+        f.Cfg.EsperaSemNovosMinutos = 0;                               // "somente manual" não pode virar laço sem pausa
+        var r = new ResultadoCiclo("137", 0, TimeSpan.Zero, null);
+        Assert.Equal(TimeSpan.FromMinutes(60), robo.EsperaEntreCiclos(r));
+        Assert.Equal(TimeSpan.FromMinutes(120), robo.EsperaEntreCiclos(r with { Espera = TimeSpan.FromMinutes(120) }));
+    }
+
+    [Fact]
+    public async Task Entrada_importada_nao_conta_como_saida_nova_e_sped_com_bom_e_reconhecido()
+    {
+        var (f, sefaz, robo) = await Montar(cte: false, mdfe: false);
+        await using var _f = f; await using var _s = sefaz;
+        var terceiro = "12345678000195";
+        var k = Chave("55", 7, terceiro);
+        var r = robo.ImportarXmlBytes(System.Text.Encoding.UTF8.GetBytes(XmlNfeDoTeste(k, terceiro, Eu)), false);
+        Assert.True(r.Entrada);
+
+        var saida = robo.ImportarXmlBytes(System.Text.Encoding.UTF8.GetBytes(XmlNfeDoTeste(Chave("55", 8), Eu, Outro)), false);
+        Assert.False(saida.Entrada); Assert.True(saida.Novo);
+
+        // SPED gravado em UTF-8 com BOM: a primeira linha lida como Latin1 começa com "ï»¿|0000|"
+        f.Cfg.PastaEntrada = Path.Combine(f.Dir, "entrada");
+        Directory.CreateDirectory(f.Cfg.PastaEntrada);
+        var chaveSped = Chave("55", 9);
+        File.WriteAllBytes(Path.Combine(f.Cfg.PastaEntrada, "sped.txt"),
+            new byte[] { 0xEF, 0xBB, 0xBF }.Concat(System.Text.Encoding.Latin1.GetBytes($"|0000|017|\n|C100|1|0||55|00|001|000000009|{chaveSped}|05102026|05102026|10,00|\n")).ToArray());
+        File.SetLastWriteTimeUtc(Path.Combine(f.Cfg.PastaEntrada, "sped.txt"), DateTime.UtcNow.AddMinutes(-5));
+        var entrada = new EntradaService(f.Cfg, f.Repo, robo);
+        await entrada.VarrerAsync();
+        Assert.Equal(Direcao.Saida, f.Repo.ObterNota(chaveSped)!.Direcao);   // virou pendência (SPED), não lista de chaves genérica
+        Assert.Equal("SPED", f.Repo.ObterNota(chaveSped)!.Origem);
     }
 }

@@ -134,6 +134,7 @@ public class EntradaService : BackgroundService
 
         if (ext == ".xml")
         {
+            if (new FileInfo(arq).Length > MaxBytesPorXml) return (Desfecho.Rejeitado, $"XML maior que {MaxBytesPorXml / (1024 * 1024)} MB");
             var r = _robo.ImportarXmlBytes(File.ReadAllBytes(arq), outros);
             return (r.Desfecho, r.Detalhe);
         }
@@ -141,6 +142,7 @@ public class EntradaService : BackgroundService
 
         // .txt / .csv: SPED (começa com |0000|) ou lista de chaves
         var primeira = File.ReadLines(arq, Encoding.Latin1).FirstOrDefault(l => !string.IsNullOrWhiteSpace(l)) ?? "";
+        primeira = primeira.TrimStart('\uFEFF', 'ï', '»', '¿'); // BOM UTF-8 lido como Latin1 ("ï»¿")
         if (primeira.StartsWith("|0000|", StringComparison.Ordinal))
         {
             var novas = _robo.ImportarSped(new[] { arq });
