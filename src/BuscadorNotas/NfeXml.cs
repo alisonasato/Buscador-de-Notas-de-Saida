@@ -5,6 +5,8 @@ using System.Xml.Linq;
 namespace BuscadorNotas;
 
 /// <summary>Leitura dos campos que interessam da NF-e (procNFe/NFe) e do resumo (resNFe). Ignora namespaces.</summary>
+public record EventoNfe(string Chave, string Tipo, int Seq, string? CStat, string? Descricao, string? DataEvento);
+
 public static class NfeXml
 {
     private static readonly Regex Chave44 = new(@"^\d{44}$", RegexOptions.Compiled);
@@ -85,6 +87,25 @@ public static class NfeXml
             Origem = origem,
         };
     }
+
+    public static readonly string[] EventosCancelamento = { "110111", "110112" }; // cancelamento / cancelamento por substituição
+
+    /// <summary>Lê resEvento (resumo) ou procEventoNFe (evento completo). Retorna null se não for um evento reconhecível.</summary>
+    public static EventoNfe? LerEvento(XDocument doc)
+    {
+        if (doc.Root?.Name.LocalName is not ("resEvento" or "procEventoNFe" or "evento" or "retEvento")) return null;
+        var chave = Texto(doc, "chNFe") ?? "";
+        var tipo = Texto(doc, "tpEvento") ?? "";
+        if (!ChaveValida(chave) || tipo.Length == 0) return null;
+        _ = int.TryParse(Texto(doc, "nSeqEvento"), out var seq);
+        return new EventoNfe(chave, tipo, seq == 0 ? 1 : seq,
+            Texto(doc, "cStat"), Texto(doc, "descEvento") ?? Texto(doc, "xEvento"),
+            NormalizarData(Texto(doc, "dhEvento") ?? Texto(doc, "dhRegEvento")));
+    }
+
+    /// <summary>Cancelamento válido: tipo 110111/110112 e (sem retorno de status, ou 135/155 = registrado/extemporâneo).</summary>
+    public static bool EhCancelamentoEfetivo(EventoNfe e) =>
+        EventosCancelamento.Contains(e.Tipo) && (e.CStat is null or "135" or "155");
 
     // Layout da chave: cUF(2) AAMM(4) CNPJ(14) mod(2) serie(3) nNF(9) tpEmis(1) cNF(8) cDV(1)
     public static string CnpjDaChave(string chave) => chave.Substring(6, 14);

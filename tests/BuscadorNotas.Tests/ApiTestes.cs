@@ -326,4 +326,99 @@ public class ApiTestes
         Assert.Equal("abc123", f.Cfg.SenhaEmMemoria);
         Assert.DoesNotContain("abc123", await f.Http.GetStringAsync("/api/certificado"));
     }
+
+    // ---------------- eventos de cancelamento ----------------
+
+    private const string EventoCompleto = """
+        <procEventoNFe xmlns="http://www.portalfiscal.inf.br/nfe" versao="1.00">
+          <evento versao="1.00"><infEvento Id="ID1101113524101122233300018155001000000001110000000011">
+            <cOrgao>35</cOrgao><chNFe>{CHAVE}</chNFe><dhEvento>2026-10-10T09:00:00-03:00</dhEvento>
+            <tpEvento>110111</tpEvento><nSeqEvento>1</nSeqEvento><detEvento versao="1.00"><descEvento>Cancelamento</descEvento></detEvento>
+          </infEvento></evento>
+          <retEvento versao="1.00"><infEvento><cStat>135</cStat><chNFe>{CHAVE}</chNFe></infEvento></retEvento>
+        </procEventoNFe>
+        """;
+
+    private const string EventoResumo = """
+        <resEvento xmlns="http://www.portalfiscal.inf.br/nfe" versao="1.01">
+          <cOrgao>91</cOrgao><CNPJ>11222333000181</CNPJ><chNFe>{CHAVE}</chNFe><dhEvento>2026-10-10T09:00:00-03:00</dhEvento>
+          <tpEvento>110111</tpEvento><nSeqEvento>1</nSeqEvento><xEvento>Cancelamento registrado</xEvento><dhRecbto>2026-10-10T09:00:05-03:00</dhRecbto>
+        </resEvento>
+        """;
+
+    [Fact]
+    public void LerEvento_le_resumo_e_evento_completo()
+    {
+        var chave = "35261011222333000181550010000000011000000012";
+        var completo = NfeXml.LerEvento(System.Xml.Linq.XDocument.Parse(EventoCompleto.Replace("{CHAVE}", chave)))!;
+        Assert.Equal(chave, completo.Chave);
+        Assert.Equal("110111", completo.Tipo);
+        Assert.Equal("135", completo.CStat);
+        Assert.True(NfeXml.EhCancelamentoEfetivo(completo));
+
+        var resumo = NfeXml.LerEvento(System.Xml.Linq.XDocument.Parse(EventoResumo.Replace("{CHAVE}", chave)))!;
+        Assert.Equal("Cancelamento registrado", resumo.Descricao);
+        Assert.True(NfeXml.EhCancelamentoEfetivo(resumo));
+
+        Assert.False(NfeXml.EhCancelamentoEfetivo(completo with { Tipo = "110110" })); // CC-e não cancela
+        Assert.False(NfeXml.EhCancelamentoEfetivo(completo with { CStat = "573" }));   // evento rejeitado
+        Assert.Null(NfeXml.LerEvento(System.Xml.Linq.XDocument.Parse("<nfeProc/>")));
+    }
+
+    [Fact]
+    public async Task Cancelamento_marca_nota_e_vence_sobre_reprocessamento_do_xml()
+    {
+        await using var f = await Semeada();
+        var nota = f.Repo.Buscar(new FiltroBusca { Numero = "1" })[0];
+        Assert.Equal("AUTORIZADA", Situacao.Classificar(nota.SituacaoSefaz));
+
+        var ev = new EventoNfe(nota.ChaveAcesso, "110111", 1, "135", "Cancelamento", "2026-10-10T09:00:00");
+        Assert.True(f.Repo.RegistrarEvento(ev, "TESTE"));
+        Assert.False(f.Repo.RegistrarEvento(ev, "TESTE")); // idempotente
+        Assert.Equal("CANCELADA", Situacao.Classificar(f.Repo.ObterNota(nota.ChaveAcesso)!.SituacaoSefaz));
+
+        // reprocessar o XML original (cStat 100) não "descancela"
+        nota.SituacaoSefaz = "100";
+        f.Repo.SalvarNotaCompleta(nota);
+        Assert.Equal("CANCELADA", Situacao.Classificar(f.Repo.ObterNota(nota.ChaveAcesso)!.SituacaoSefaz));
+
+        var cancel = await f.Http.GetFromJsonAsync<JsonElement>("/api/notas?situacao=CANCELADA");
+        Assert.Equal(2, cancel.GetProperty("total").GetInt32()); // a nota 3 já era cancelada + a 1
+    }
+
+    [Fact]
+    public async Task Evento_que_chega_antes_da_nota_e_reaplicado_quando_ela_entra()
+    {
+        await using var f = await Semeada();
+        var chave = "35261011222333000181550010000000991000000999";
+        f.Repo.RegistrarEvento(new EventoNfe(chave, "110111", 1, null, null, null), "TESTE");
+        Assert.Null(f.Repo.ObterNota(chave));
+
+        f.Repo.InserirSeNaoExiste(new NotaSaida { ChaveAcesso = chave, CnpjEmitente = f.Cfg.Cnpj, NumeroNota = "99", Status = StatusNota.Pendente, SituacaoSefaz = "100" });
+        Assert.Equal("CANCELADA", Situacao.Classificar(f.Repo.ObterNota(chave)!.SituacaoSefaz));
+    }
+
+    [Fact]
+    public async Task Evento_de_outro_tipo_ou_de_outro_emitente_nao_altera_notas()
+    {
+        await using var f = await Semeada();
+        var robo = new Robo(f.Cfg, f.Repo);
+        var nota = f.Repo.Buscar(new FiltroBusca { Numero = "1" })[0];
+
+        // carta de correção (110110) da nossa nota: ignorada
+        var cce = EventoCompleto.Replace("{CHAVE}", nota.ChaveAcesso).Replace("110111", "110110");
+        robo.ProcessarDocumento(new DocumentoDistribuido("1", "procEventoNFe_v1.00.xsd", cce));
+        Assert.Equal("AUTORIZADA", Situacao.Classificar(f.Repo.ObterNota(nota.ChaveAcesso)!.SituacaoSefaz));
+        Assert.Equal(0, f.Repo.ContarEventos(nota.ChaveAcesso));
+
+        // cancelamento de nota de OUTRO emitente (CNPJ na chave diferente do configurado): ignorado
+        var alheia = "35261099888777000166550010000000011000000011";
+        robo.ProcessarDocumento(new DocumentoDistribuido("2", "resEvento_v1.01.xsd", EventoResumo.Replace("{CHAVE}", alheia)));
+        Assert.Equal(0, f.Repo.ContarEventos(alheia));
+
+        // cancelamento da nossa nota, como resumo: aplicado
+        robo.ProcessarDocumento(new DocumentoDistribuido("3", "resEvento_v1.01.xsd", EventoResumo.Replace("{CHAVE}", nota.ChaveAcesso)));
+        Assert.Equal("CANCELADA", Situacao.Classificar(f.Repo.ObterNota(nota.ChaveAcesso)!.SituacaoSefaz));
+        Assert.Equal(1, f.Repo.ContarEventos(nota.ChaveAcesso));
+    }
 }

@@ -46,6 +46,16 @@ public class Repositorio
                 Tentativas INTEGER NOT NULL DEFAULT 0,
                 UltimoErro TEXT
             );
+            CREATE TABLE IF NOT EXISTS EventosNota (
+                ChaveAcesso TEXT NOT NULL,
+                TipoEvento TEXT NOT NULL,
+                Sequencia INTEGER NOT NULL,
+                CStat TEXT,
+                Descricao TEXT,
+                DataEvento TEXT,
+                Origem TEXT,
+                PRIMARY KEY (ChaveAcesso, TipoEvento, Sequencia)
+            );
             CREATE TABLE IF NOT EXISTS SincronizacaoLog (
                 Id INTEGER PRIMARY KEY AUTOINCREMENT,
                 IniciadoEm TEXT NOT NULL,
@@ -114,6 +124,7 @@ public class Repositorio
             """;
         Preencher(cmd, n);
         cmd.ExecuteNonQuery();
+        ReaplicarCancelamento(c, n.ChaveAcesso);
     }
 
     /// <summary>Insere uma nota conhecida só por metadados (SPED/resumo); não sobrescreve dado existente.</summary>
@@ -129,7 +140,61 @@ public class Repositorio
               ($chave, $emit, $num, $serie, $data, $dest, $nome, $valor, $caminho, $status, $sit, $origem, 0, NULL)
             """;
         Preencher(cmd, n);
-        return cmd.ExecuteNonQuery() > 0;
+        var inseriu = cmd.ExecuteNonQuery() > 0;
+        if (inseriu) ReaplicarCancelamento(c, n.ChaveAcesso);
+        return inseriu;
+    }
+
+    // ---------- Eventos (cancelamento) ----------
+
+    /// <summary>
+    /// Guarda o evento (idempotente) e, se for um cancelamento efetivo, marca a nota como cancelada.
+    /// Se a nota ainda não existe, o cancelamento é reaplicado quando ela for gravada.
+    /// </summary>
+    /// <returns>true se o evento era novo.</returns>
+    public bool RegistrarEvento(EventoNfe e, string origem)
+    {
+        using var c = Abrir();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = """
+            INSERT OR IGNORE INTO EventosNota (ChaveAcesso, TipoEvento, Sequencia, CStat, Descricao, DataEvento, Origem)
+            VALUES ($k, $t, $s, $c, $d, $dt, $o)
+            """;
+        cmd.Parameters.AddWithValue("$k", e.Chave);
+        cmd.Parameters.AddWithValue("$t", e.Tipo);
+        cmd.Parameters.AddWithValue("$s", e.Seq);
+        cmd.Parameters.AddWithValue("$c", (object?)e.CStat ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$d", (object?)e.Descricao ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$dt", (object?)e.DataEvento ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$o", origem);
+        var novo = cmd.ExecuteNonQuery() > 0;
+        if (NfeXml.EhCancelamentoEfetivo(e)) ReaplicarCancelamento(c, e.Chave);
+        return novo;
+    }
+
+    public int ContarEventos(string chave)
+    {
+        using var c = Abrir();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM EventosNota WHERE ChaveAcesso = $k";
+        cmd.Parameters.AddWithValue("$k", chave);
+        return Convert.ToInt32(cmd.ExecuteScalar(), CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>Se existe evento de cancelamento efetivo para a chave, a situação da nota passa a ser "cancelada" (vence sobre o cStat 100 do XML original).</summary>
+    private static void ReaplicarCancelamento(SqliteConnection c, string chave)
+    {
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = """
+            UPDATE NotasSaidaBaixadas SET SituacaoSefaz = $sit
+            WHERE ChaveAcesso = $k
+              AND EXISTS (SELECT 1 FROM EventosNota
+                          WHERE ChaveAcesso = $k AND TipoEvento IN ('110111', '110112')
+                            AND (CStat IS NULL OR CStat IN ('135', '155')))
+            """;
+        cmd.Parameters.AddWithValue("$sit", Situacao.CanceladaPorEvento);
+        cmd.Parameters.AddWithValue("$k", chave);
+        cmd.ExecuteNonQuery();
     }
 
     private static void Preencher(SqliteCommand cmd, NotaSaida n)

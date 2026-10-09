@@ -118,7 +118,7 @@ O servidor expõe 4 estados (`idle`, `running`, `blocked`, `error`). O aviso "Tu
 
 ## 5. Lacunas que continuam
 
-- **"Situação: Cancelada"** só reflete o que está em `SituacaoSefaz`: cStat 101/135/155 vindo de consulta, ou `COD_SIT` 02/03 do SPED. O sistema ainda **não processa eventos** de cancelamento da distribuição, então uma nota cancelada depois de baixada continua "Autorizada".
+- **"Situação: Cancelada"** vem de cStat 101/135/155, de `COD_SIT` 02/03 do SPED ou de um evento de cancelamento (110111/110112) recebido na distribuição. Os layouts do evento foram escritos de memória e precisam ser confirmados com dados reais (`sync --diagnostico`).
 - **Mapeamento do SPED:** `COD_SIT` 00/01/06/07/08 é tratado como "Autorizada" e 04 como "Denegada"; conferir com o Guia Prático da EFD.
 - **Pill "SEFAZ"** mostra o resultado do **último contato** (não há consulta ao `NfeStatusServico`).
 - **Notas pendentes** (chave conhecida, sem XML) aparecem com "Baixar XML" desativado. Notas vindas só de `importar-chaves` não têm data até o XML chegar, então não entram nos totais do mês.

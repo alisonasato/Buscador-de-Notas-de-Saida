@@ -10,6 +10,7 @@ const string Ajuda = """
       serve [--url http://127.0.0.1:5080]
                                   Sobe a interface web e a API HTTP (/api). Veja ApiUrl/ApiToken em appsettings.json.
       sync [--loop]               Robô de NSU (nfeDistDFeInteresse). Com --loop roda continuamente.
+      sync --desde-nsu N          Volta o NSU salvo para N e sincroniza (reprocessa histórico; operação idempotente).
       sync --diagnostico [--max-paginas N] [--nsu-inicial N]
                                   Teste: lista em que papel (emitente/destinatário) seu CNPJ aparece, sem gravar nada.
       importar-xml <pasta> [--todos]
@@ -58,7 +59,18 @@ try
                     int.Parse(Opcao(resto, "--max-paginas") ?? "20", CultureInfo.InvariantCulture),
                     (Opcao(resto, "--nsu-inicial") ?? "0").PadLeft(15, '0'), cts.Token);
             else
+            {
+                // Reprocessar histórico (ex.: para aplicar eventos de cancelamento que passaram antes desta versão):
+                // volta o NSU salvo; é seguro repetir, pois gravar nota/evento é idempotente.
+                if (Opcao(resto, "--desde-nsu") is { } desde)
+                {
+                    if (desde.Length is 0 or > 15 || !desde.All(char.IsDigit))
+                        throw new ArgumentException("--desde-nsu deve ser um número de até 15 dígitos.");
+                    repo.SalvarUltimoNsu(cfg.Cnpj, desde.PadLeft(15, '0'));
+                    Console.WriteLine($"NSU salvo reposicionado para {desde.PadLeft(15, '0')}.");
+                }
                 await robo.SincronizarAsync(resto.Contains("--loop"), cts.Token);
+            }
             break;
 
         case "importar-xml":

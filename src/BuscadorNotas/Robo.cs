@@ -92,7 +92,7 @@ public partial class Robo
     }
 
     /// <summary>Retorna true quando o documento é uma nota de saída nova (ou que ainda não tinha XML).</summary>
-    private bool ProcessarDocumento(DocumentoDistribuido d)
+    public bool ProcessarDocumento(DocumentoDistribuido d)
     {
         XDocument doc;
         try { doc = XDocument.Parse(d.Xml); }
@@ -121,7 +121,17 @@ public partial class Robo
                 if (nota == null || nota.CnpjEmitente != _cfg.Cnpj) return false;
                 return _repo.InserirSeNaoExiste(nota);
             }
-            // eventos (resEvento/procEventoNFe) não são tratados nesta versão
+            case "resEvento":
+            case "procEventoNFe":
+            {
+                var ev = NfeXml.LerEvento(doc);
+                // Só eventos de notas emitidas por nós; o CNPJ vem da própria chave de acesso.
+                if (ev == null || NfeXml.CnpjDaChave(ev.Chave) != _cfg.Cnpj) return false;
+                if (!NfeXml.EventosCancelamento.Contains(ev.Tipo)) return false; // CC-e e demais: não tratados
+                if (_repo.RegistrarEvento(ev, "NSU"))
+                    Console.WriteLine($"  NSU {d.Nsu}: evento {ev.Tipo} (cancelamento) da NF-e {NfeXml.NumeroDaChave(ev.Chave)}.");
+                return false; // não é nota nova
+            }
             default:
                 return false;
         }

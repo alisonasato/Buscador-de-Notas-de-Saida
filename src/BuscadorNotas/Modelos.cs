@@ -60,6 +60,9 @@ public static class Situacao
 {
     public const string Autorizada = "AUTORIZADA", Cancelada = "CANCELADA", Denegada = "DENEGADA", Desconhecida = "DESCONHECIDA";
 
+    /// <summary>Gravado em SituacaoSefaz quando um evento de cancelamento (110111/110112) é aplicado à nota (começa com 135, tratado como cancelada).</summary>
+    public const string CanceladaPorEvento = "135 - Cancelamento registrado (evento)";
+
     // Prefixos de cStat (Sefaz) e códigos COD_SIT do SPED (00 regular, 01 extemporâneo, 02/03 cancelado, 04 denegado, 06-08 complementar/regime especial).
     internal static readonly string[] PrefixosAutorizada = { "100", "150", "SPED COD_SIT=00", "SPED COD_SIT=01", "SPED COD_SIT=06", "SPED COD_SIT=07", "SPED COD_SIT=08" };
     internal static readonly string[] PrefixosCancelada = { "101", "135", "155", "SPED COD_SIT=02", "SPED COD_SIT=03" };
