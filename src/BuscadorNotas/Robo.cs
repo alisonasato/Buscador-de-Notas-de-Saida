@@ -2,6 +2,25 @@ using System.Xml.Linq;
 
 namespace BuscadorNotas;
 
+/// <summary>O que a Sefaz entregou num ciclo, por papel do seu CNPJ (para explicar "0 notas novas").</summary>
+public class EstatisticaCiclo
+{
+    public int Recebidos, Saidas, ComoDestinatario, Resumos, Eventos, Outros;
+
+    public string Texto()
+    {
+        if (Recebidos == 0) return "";
+        var partes = new List<string>();
+        void Add(int n, string rotulo) { if (n > 0) partes.Add($"{n} {rotulo}"); }
+        Add(Saidas, "emitido(s) por você (saída)");
+        Add(ComoDestinatario, "em que você é destinatário (entrada)");
+        Add(Resumos, "resumo(s) de notas de terceiros");
+        Add(Eventos, "evento(s)");
+        Add(Outros, "outro(s)");
+        return $"{Recebidos} documento(s) recebido(s): {string.Join(", ", partes)}";
+    }
+}
+
 public record ProgressoSync(int Pagina, string UltNsu, string MaxNsu, int NovasNotas);
 
 /// <param name="CStat">138 (docs), 137 (nada novo), 656 (bloqueio) ou CANCELADO.</param>
@@ -137,6 +156,7 @@ public partial class Robo
         var chaveNsu = svc.Chave == "NFE" ? _cfg.Cnpj : $"{_cfg.Cnpj}:{svc.Chave}";
         var ultNsu = _repo.ObterUltimoNsu(chaveNsu);
         int pagina = 0, novas = 0;
+        var est = new EstatisticaCiclo();
 
         while (!ct.IsCancellationRequested)
         {
@@ -148,12 +168,16 @@ public partial class Robo
             switch (ret.CStat)
             {
                 case "138": // documentos localizados
-                    foreach (var d in ret.Documentos) if (svc.Chave == "NFE" ? ProcessarDocumento(d) : ProcessarDocumentoExtra(d)) novas++;
+                    foreach (var d in ret.Documentos) { est.Recebidos++; if (svc.Chave == "NFE" ? ProcessarDocumento(d, est) : ProcessarDocumentoExtra(d)) novas++; }
                     _repo.SalvarUltimoNsu(chaveNsu, ret.UltNsu);
                     ultNsu = ret.UltNsu;
                     progresso?.Invoke(new ProgressoSync(pagina, ret.UltNsu, ret.MaxNsu, novas));
                     if (string.CompareOrdinal(ret.UltNsu, ret.MaxNsu) >= 0)
-                        return new ResultadoCiclo("138", novas, TimeSpan.FromMinutes(_cfg.EsperaSemNovosMinutos), ret.XMotivo);
+                    {
+                        var resumo = est.Texto();
+                        if (resumo.Length > 0) Console.WriteLine("  " + resumo);
+                        return new ResultadoCiclo("138", novas, TimeSpan.FromMinutes(_cfg.EsperaSemNovosMinutos), resumo.Length > 0 ? resumo : ret.XMotivo);
+                    }
                     await Task.Delay(TimeSpan.FromSeconds(_cfg.PausaEntreRequisicoesSegundos), ct);
                     break;
 
@@ -186,13 +210,14 @@ public partial class Robo
     }
 
     /// <summary>Retorna true quando o documento é uma nota de saída nova (ou que ainda não tinha XML).</summary>
-    public bool ProcessarDocumento(DocumentoDistribuido d)
+    public bool ProcessarDocumento(DocumentoDistribuido d, EstatisticaCiclo? est = null)
     {
         XDocument doc;
         try { doc = XDocument.Parse(d.Xml); }
         catch (System.Xml.XmlException ex)
         {
             Console.WriteLine($"  NSU {d.Nsu}: XML inválido ({ex.Message}); ignorado.");
+            if (est != null) est.Outros++;
             return false;
         }
 
@@ -202,7 +227,13 @@ public partial class Robo
             case "NFe":
             {
                 var nota = NfeXml.LerNotaCompleta(doc, "NSU");
-                if (nota == null || nota.CnpjEmitente != _cfg.Cnpj) return false; // só notas emitidas por nós (saída)
+                if (nota == null) { if (est != null) est.Outros++; return false; }
+                if (nota.CnpjEmitente != _cfg.Cnpj) // só notas emitidas por nós (saída)
+                {
+                    if (est != null) { if (nota.CnpjCpfDestinatario == _cfg.Cnpj) est.ComoDestinatario++; else est.Outros++; }
+                    return false;
+                }
+                if (est != null) est.Saidas++;
                 var nova = _repo.ObterNota(nota.ChaveAcesso)?.Status != StatusNota.Baixado;
                 nota.CaminhoXmlLocal = _storage.Salvar(nota.ChaveAcesso, d.Xml);
                 _repo.SalvarNotaCompleta(nota);
@@ -212,7 +243,9 @@ public partial class Robo
             case "resNFe":
             {
                 var nota = NfeXml.LerResumo(doc, "NSU");
-                if (nota == null || nota.CnpjEmitente != _cfg.Cnpj) return false;
+                if (nota == null) { if (est != null) est.Outros++; return false; }
+                if (nota.CnpjEmitente != _cfg.Cnpj) { if (est != null) est.Resumos++; return false; }
+                if (est != null) est.Saidas++;
                 return _repo.InserirSeNaoExiste(nota);
             }
             case "resEvento":
@@ -220,6 +253,7 @@ public partial class Robo
             {
                 var ev = NfeXml.LerEvento(doc);
                 // Só eventos de notas emitidas por nós; o CNPJ vem da própria chave de acesso.
+                if (est != null) est.Eventos++;
                 if (ev == null || NfeXml.CnpjDaChave(ev.Chave) != _cfg.Cnpj) return false;
                 if (!NfeXml.TipoCancelaDocumento(ev.Chave, ev.Tipo)) return false; // CC-e e demais: não tratados
                 if (_repo.RegistrarEvento(ev, "NSU"))
@@ -227,6 +261,7 @@ public partial class Robo
                 return false; // não é nota nova
             }
             default:
+                if (est != null) est.Outros++;
                 return false;
         }
     }

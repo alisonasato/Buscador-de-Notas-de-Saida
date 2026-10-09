@@ -82,6 +82,10 @@ Defina `PastaEntrada` no `appsettings.json` e rode `serve`: XMLs, ZIPs de XMLs, 
 
 Serviço do Windows, logs por dia e backup agendado: veja **[docs/instalacao-windows.md](docs/instalacao-windows.md)** (`deploy/instalar.ps1`). Comando de backup: `BuscadorNotas backup --destino D:\Backups\Buscador`.
 
+## "Consulta concluída: 0 notas novas" (mas a Sefaz entregou documentos)
+
+Significa cStat 138 (a Sefaz entregou documentos), porém nenhum era uma NF-e **emitida pelo seu CNPJ**. O histórico e o aviso mostram o que chegou, por exemplo `8955 documento(s) recebido(s): 8955 em que você é destinatário (entrada)`. Isso é o esperado quando a distribuição só devolve notas em que você é destinatário: para as saídas, use a pasta de entrada (XML/ZIP/SPED do emissor ou do contador). Para contar o que já foi entregue sem alterar nada: `BuscadorNotas.exe sync --diagnostico --max-paginas 200` (respeita o intervalo mínimo entre consultas).
+
 ## Erro 656 "Consumo indevido" na sincronização
 
 É um **limite de uso** da Sefaz, não um defeito: depois de uma consulta sem novidades (137) ou que chegou ao fim do acervo (138), uma nova consulta em menos de 1 hora é recusada com 656 e o CNPJ fica bloqueado por um tempo. O programa respeita isso: depois dessas consultas o botão "Sincronizar agora" fica desativado até o horário liberado (`IntervaloMinimoMinutos`, padrão 60), o agendador também espera, e na linha de comando o `sync` recusa com aviso (`--forcar` ignora, por sua conta e risco). Depois de um 656 a espera é de `EsperaConsumoIndevidoMinutos` (65) e vale mesmo se você fechar e abrir o programa. **Não clique repetidamente, não reinicie para "destravar" e não rode `sync --diagnostico` durante a espera**: o bloqueio é na Sefaz e cada tentativa pode prolongá-lo.

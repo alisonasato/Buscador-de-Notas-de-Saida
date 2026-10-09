@@ -23,7 +23,7 @@ public class SyncService
     private ProgressoSync? _progresso;
     private DateTimeOffset? _retomarEm;
     private (string Codigo, string Mensagem)? _erro;
-    private (string CStat, int Novas, DateTimeOffset FimEm)? _ultimo;
+    private (string CStat, int Novas, DateTimeOffset FimEm, string? Mensagem)? _ultimo;
     private DateTimeOffset? _proxima;
     private CancellationTokenSource? _cts;
 
@@ -42,7 +42,7 @@ public class SyncService
         var ultimo = _repo.UltimosLogs(1).FirstOrDefault();
         if (ultimo?.FimEm != null && DateTimeOffset.TryParse(ultimo.FimEm, out var fim))
         {
-            _ultimo = (ultimo.Resultado ?? "", ultimo.NovasNotas, fim);
+            _ultimo = (ultimo.Resultado ?? "", ultimo.NovasNotas, fim, ultimo.Mensagem);
             if (ultimo.Resultado == "656" && fim.AddMinutes(_cfg.EsperaConsumoIndevidoMinutos) > agora)
             {
                 _estado = "blocked";
@@ -74,7 +74,7 @@ public class SyncService
                 },
                 retomarEm = _retomarEm,
                 erro = _erro == null ? null : new { codigo = _erro.Value.Codigo, mensagem = _erro.Value.Mensagem },
-                ultimoResultado = _ultimo == null ? null : new { cStat = _ultimo.Value.CStat, novasNotas = _ultimo.Value.Novas, fimEm = _ultimo.Value.FimEm },
+                ultimoResultado = _ultimo == null ? null : new { cStat = _ultimo.Value.CStat, novasNotas = _ultimo.Value.Novas, fimEm = _ultimo.Value.FimEm, mensagem = _ultimo.Value.Mensagem },
                 // Antes disso a Sefaz responderia 656: a tela mantém o botão desativado até lá
                 liberadoEm = _robo.EsperaRestante() is { } e ? e.LiberadoEm : (DateTimeOffset?)null,
                 proximaExecucao = _cfg.SincronizacaoAutomatica && _cfg.EsperaSemNovosMinutos > 0 ? _proxima : null,
@@ -180,7 +180,7 @@ public class SyncService
             _iniciadoEm = null;
             _origem = null;
             _progresso = null;
-            _ultimo = (resultado, novas, fim);
+            _ultimo = (resultado, novas, fim, mensagem);
             _erro = erro;
             _retomarEm = null;
             _estado = erro != null ? "error" : "idle";
@@ -208,7 +208,7 @@ public class SyncService
         _repo.FinalizarLog(id, agora, "ERRO", 0, mensagem);
         _estado = "error";
         _erro = (codigo, mensagem);
-        _ultimo = ("ERRO", 0, agora);
+        _ultimo = ("ERRO", 0, agora, mensagem);
         _proxima = agora.AddMinutes(Math.Max(1, _cfg.EsperaSemNovosMinutos));
         Publicar(new { tipo = "erro", codigo, mensagem });
     }

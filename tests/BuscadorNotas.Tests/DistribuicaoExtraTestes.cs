@@ -214,4 +214,45 @@ public class DistribuicaoExtraTestes
         await Assert.ThrowsAsync<InvalidOperationException>(() => robo.ExecutarCicloComAsync(new HttpClient(), null, default));
         Assert.Null(robo.EsperaRestante());                                   // rejeição de formato não conta como consulta bem-sucedida
     }
+
+    // ---------------- o que a Sefaz entregou (explica "0 notas novas") ----------------
+
+    private static string XmlNfeDoTeste(string k, string emit, string dest) =>
+        $"""<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe"><NFe><infNFe Id="NFe{k}"><ide><mod>55</mod><serie>1</serie><nNF>1</nNF><dhEmi>2026-10-05T10:00:00-03:00</dhEmi></ide><emit><CNPJ>{emit}</CNPJ></emit><dest><CNPJ>{dest}</CNPJ><xNome>X</xNome></dest><total><ICMSTot><vNF>10.00</vNF></ICMSTot></total></infNFe></NFe><protNFe><infProt><chNFe>{k}</chNFe><cStat>100</cStat></infProt></protNFe></nfeProc>""";
+
+    [Fact]
+    public async Task Resultado_explica_o_que_a_sefaz_entregou_por_papel_do_cnpj()
+    {
+        var (f, sefaz, robo) = await Montar(cte: false, mdfe: false);
+        await using var _f = f; await using var _s = sefaz;
+        var terceiro = "12345678000195";
+        var kSaida = Chave("55", 1); var kEntrada = Chave("55", 2, terceiro); var kAlheia = Chave("55", 3, terceiro); var kResumo = Chave("55", 4, terceiro);
+
+        sefaz.Respostas["nfe"] = SefazFalsa.Resposta("138", "Documento localizado", "000000000000005", "000000000000005",
+            ("000000000000001", XmlNfeDoTeste(kSaida, Eu, Outro)),                      // emitida por mim
+            ("000000000000002", XmlNfeDoTeste(kEntrada, terceiro, Eu)),                 // sou o destinatário
+            ("000000000000003", XmlNfeDoTeste(kAlheia, terceiro, Outro)),               // nem emitente nem destinatário
+            ("000000000000004", $"""<resNFe xmlns="http://www.portalfiscal.inf.br/nfe"><chNFe>{kResumo}</chNFe><CNPJ>{terceiro}</CNPJ><xNome>T</xNome><vNF>5.00</vNF><dhEmi>2026-10-05T10:00:00-03:00</dhEmi><cSitNFe>1</cSitNFe></resNFe>"""),
+            ("000000000000005", $"""<procEventoNFe xmlns="http://www.portalfiscal.inf.br/nfe"><evento><infEvento><chNFe>{kSaida}</chNFe><tpEvento>110110</tpEvento><nSeqEvento>1</nSeqEvento></infEvento></evento></procEventoNFe>"""));
+
+        var r = await robo.ExecutarCicloComAsync(new HttpClient(), null, default);
+
+        Assert.Equal("138", r.CStat);
+        Assert.Equal(1, r.NovasNotas);
+        Assert.Contains("5 documento(s) recebido(s)", r.Mensagem);
+        Assert.Contains("1 emitido(s) por você", r.Mensagem);
+        Assert.Contains("1 em que você é destinatário", r.Mensagem);
+        Assert.Contains("1 resumo(s) de notas de terceiros", r.Mensagem);
+        Assert.Contains("1 evento(s)", r.Mensagem);
+        Assert.Contains("1 outro(s)", r.Mensagem);
+        Assert.Equal(1, f.Repo.Contar(new FiltroBusca()));                      // só a saída foi guardada
+    }
+
+    [Fact]
+    public void Texto_da_estatistica_omite_zeros_e_fica_vazio_sem_documentos()
+    {
+        Assert.Equal("", new EstatisticaCiclo().Texto());
+        var e = new EstatisticaCiclo { Recebidos = 8955, ComoDestinatario = 8955 };
+        Assert.Equal("8955 documento(s) recebido(s): 8955 em que você é destinatário (entrada)", e.Texto());
+    }
 }
